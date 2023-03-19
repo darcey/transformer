@@ -1,18 +1,56 @@
 from enum import Enum
 from argparse import Namespace
- 
+
+# Allows the three standard transformer configurations (Encoder-Decoder, 
+# Encoder only, Decoder only) as well as two "Custom" configurations that
+# allow maximum flexibility.
+
+# Encoder-Decoder model:
+#   encoder: takes one sequence,  no masked self-attention,  outputs encodings
+#   decoder: takes two sequences, has masked self-attention, outputs probs
+# Encoder Only model:
+#   encoder: takes one sequence,  no masked self-attention,  outputs encodings
+# Decoder Only model:
+#   decoder: takes one sequence,  has masked self-attention, outputs probs
+# Custom, Two-Sequence:
+#   encoder: takes one sequence,  [use_masked_att_encoder],  outputs encodings
+#   decoder: takes two sequences, [use_masked_att_decoder],  [output_probs]
+# Custom, One-Sequence (arbitrarily chosen to be decoder):
+#   decoder: takes one sequence,  [use_masked_att_decoder],  [output_probs]
+
+class TransformerType(Enum):
+    ENCODER_DECODER = 1
+    ENCODER_ONLY = 2
+    DECODER_ONLY = 3
+    CUSTOM_TWO_SEQ = 4
+    CUSTOM_ONE_SEQ = 5
+
+class PositionalEncodingType(Enum):
+    NONE = 0
+    SINUSOIDAL = 1
+
 class NormType(Enum):
     NONE = 0
     LAYER_NORM = 1
 
 def get_config_arch():
     config_arch = dict()
-    config_arch["context_window_length"] = 512
-    config_arch["num_encoder_layers"]    = 6
-    config_arch["num_decoder_layers"]    = 6
-    config_arch["num_attention_heads"]   = 8
-    config_arch["d_model"]               = 512
-    config_arch["d_ff"]                  = 2048
-    config_arch["norm_type"]             = NormType.LAYER_NORM
-    config_arch["layer_norm_epsilon"]    = 1e-5
+    config_arch["context_window_length"]  = 512
+    config_arch["transformer_type"]       = TransformerType.ENCODER_DECODER
+    
+    # These options are only relevant if TransformerType is CUSTOM*
+    config_arch["output_probs"]           = True
+    config_arch["use_masked_att_encoder"] = False
+    config_arch["use_masked_att_decoder"] = True
+    
+    config_arch["num_encoder_layers"]     = 6
+    config_arch["num_decoder_layers"]     = 6
+    config_arch["num_attention_heads"]    = 8
+    config_arch["d_model"]                = 512
+    config_arch["d_ff"]                   = 2048
+    
+    config_arch["use_resid_connection"]   = True
+    config_arch["pos_enc_type"]           = PositionalEncodingType.SINUSOIDAL
+    config_arch["norm_type"]              = NormType.LAYER_NORM
+    config_arch["layer_norm_epsilon"]     = 1e-5
     return Namespace(**config_arch)

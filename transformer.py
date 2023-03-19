@@ -33,7 +33,21 @@ class Embedding(torch.nn.Module):
 
 
 def get_positional_encoding(config):
-    return SinusoidalPositionalEncoding(config.context_window_length, config.d_model)
+    match config.pos_enc_type:
+        case PositionalEncodingType.NONE:
+            return NullPositionalEncoding()
+        case PositionalEncodingType.SINUSOIDAL:
+            return SinusoidalPositionalEncoding(config.context_window_length, config.d_model)
+
+class NullPositionalEncoding(torch.nn.Module):
+    
+    def __init__(self):
+        super().__init__()
+
+    # x:   [batch, seq, d_model]
+    # ret:        [seq, d_model]
+    def forward(self, x):
+        return torch.zeros_like(x)
 
 class SinusoidalPositionalEncoding(torch.nn.Module):
 
@@ -160,132 +174,151 @@ class MultiHeadAttention(torch.nn.Module):
 
 
 
-class EncoderLayer(torch.nn.Module):
+# Implements an Encoder layer, a Decoder layer, or anything in between.
+#   Encoder layer: takes one sequence,   no masked self-attention
+#   Decoder layer: takes two sequences, has masked self-attention
+#   Decoder only:  takes one sequence,  has masked self-attention
+#   ???:           takes two sequences,  no masked self-attention
+class EncoderOrDecoderLayer(torch.nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config, take_two_seqs, use_mask):
         super().__init__()
-        self.self_attention = get_attention(config)
-        self.norm1          = get_normalization(config)
-        self.feed_forward   = get_feed_forward(config)
-        self.norm2          = get_normalization(config)
-
-    # src: [batch, src_seq, d_model]
-    # ret: [batch, src_seq, d_model]
-    def forward(self, src):
-        resid  = src
-        resid += self.self_attention(resid, resid, resid)
-        resid  = self.norm1(resid)
-        resid += self.feed_forward(resid)
-        resid  = self.norm2(resid)
-        return resid
-
-class Encoder(torch.nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.layers = torch.nn.ModuleList([EncoderLayer(config) for _ in range(config.num_encoder_layers)])
-
-    # src: [batch, src_seq, d_model]
-    # ret: [batch, src_seq, d_model]
-    def forward(self, src):
-        resid = src
-        for layer in self.layers:
-            resid = layer(resid)
-        return resid
-
-
-
-class DecoderLayer(torch.nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
+        self.use_resid     = config.use_resid_connection
+        self.take_two_seqs = take_two_seqs
+        self.use_mask      = use_mask
+        
         self.self_attention  = get_attention(config)
         self.norm1           = get_normalization(config)
-        self.cross_attention = get_attention(config)
-        self.norm2           = get_normalization(config)
+        if take_two_seqs:
+            self.cross_attention = get_attention(config)
+            self.norm2           = get_normalization(config)
         self.feed_forward    = get_feed_forward(config)
         self.norm3           = get_normalization(config)
 
-    # src_enc: [batch, src_seq, d_model]
-    # tgt:     [batch, tgt_seq, d_model]
-    # mask:    [tgt_seq, tgt_seq]
-    # ret:     [batch, tgt_seq, d_model]
-    def forward(self, tgt, src_enc, mask):
-        resid  = tgt
-        resid += self.self_attention(resid, resid, resid, mask)
-        resid  = self.norm1(resid)
-        resid += self.cross_attention(resid, src_enc, src_enc)
-        resid  = self.norm2(resid)
-        resid += self.feed_forward(resid)
-        resid  = self.norm3(resid)
-        return resid
+    # prev_seq: [batch, prev_seq, d_model]
+    # this_seq: [batch, this_seq, d_model]
+    # mask:     [this_seq, this_seq]
+    # ret:      [batch, this_seq, d_model]
+    def forward(self, this_seq, prev_seq=None, mask=None):
+        if ((prev_seq == None) != (not self.take_two_seqs)) or \
+           ((mask == None) != (not self.use_mask)):
+            raise ValueError("EncoderOrDecoderLayer: bad combination of arguments")
+        
+        if self.use_resid:
+            resid  = this_seq
+            resid += self.self_attention(resid, resid, resid, mask)
+            resid  = self.norm1(resid)
+            if self.take_two_seqs:
+                resid += self.cross_attention(resid, prev_seq, prev_seq)
+                resid  = self.norm2(resid)
+            resid += self.feed_forward(resid)
+            resid  = self.norm3(resid)
+            return resid
 
-class Decoder(torch.nn.Module):
+        else:
+            ret = self.norm1(self.self_attention(this_seq, this_seq, this_seq, mask))
+            if self.take_two_seqs:
+                ret = self.norm2(self.cross_attention(ret, prev_seq, prev_seq))
+            ret = self.norm3(self.feed_forward(ret))
+            return ret
 
-    def __init__(self, config):
-        super().__init__()
-        self.layers = torch.nn.ModuleList([DecoderLayer(config) for _ in range(config.num_decoder_layers)])
+# Implements an Encoder, Decoder, or anything in between.
+# Same four possibilities as EncoderOrDecoderLayer.
+class EncoderOrDecoder(torch.nn.Module):
     
-    # src_enc: [batch, src_seq, d_model]
-    # tgt:     [batch, tgt_seq, d_model]
-    # ret:     [batch, tgt_seq, d_model]
-    def forward(self, tgt, src_enc):
-        mask = torch.triu(torch.full((tgt.size(1), tgt.size(1)), float('-inf')), diagonal=1)
-        resid = tgt
+    def __init__(self, config, num_layers, take_two_seqs, use_mask):
+        super().__init__()
+        self.take_two_seqs = take_two_seqs
+        self.use_mask      = use_mask
+        self.layers        = torch.nn.ModuleList([EncoderOrDecoderLayer(config, take_two_seqs, use_mask) for _ in range(num_layers)])
+
+    # prev_seq: [batch, prev_seq, d_model]
+    # this_seq: [batch, this_seq, d_model]
+    # ret:      [batch, this_seq, d_model]
+    def forward(self, this_seq, prev_seq=None):
+        if (prev_seq == None) != (not self.take_two_seqs):
+            raise ValueError("EncoderOrDecoder: bad combination of arguments")
+        mask = None
+        if self.use_mask:
+            seq_len = this_seq.size(1)
+            mask = torch.triu(torch.full((seq_len, seq_len), float('-inf')), diagonal=1)
+        
+        ret = this_seq
         for layer in self.layers:
-            resid = layer(resid, src_enc, mask)
-        return resid
-
-
-
-class DecoderOnlyLayer(torch.nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.self_attention = get_attention(config)
-        self.norm1          = get_normalization(config)
-        self.feed_forward   = get_feed_forward(config)
-        self.norm2          = get_normalization(config)
-
-    # tgt:  [batch, tgt_seq, d_model]
-    # mask: [tgt_seq, tgt_seq]
-    # ret:  [batch, tgt_seq, d_model]
-    def forward(self, tgt, mask):
-        resid  = tgt
-        resid += self.self_attention(resid, resid, resid, mask)
-        resid  = self.norm1(resid)
-        resid += self.feed_forward(resid)
-        resid  = self.norm2(resid)
-        return resid
-
-class DecoderOnly(torch.nn.Module):
-    
-    def __init__(self, config):
-        super().__init__()
-        self.layers = torch.nn.ModuleList([DecoderOnlyLayer(config) for _ in range(config.num_decoder_layers)])
-    
-    # tgt: [batch, tgt_seq, d_model]
-    # ret: [batch, tgt_seq, d_model]
-    def forward(self, tgt):
-        mask = torch.triu(torch.full((tgt.size(1), tgt.size(1)), float('-inf')), diagonal=1)
-        resid = tgt
-        for layer in self.layers:
-            resid = layer(resid, mask)
-        return resid
+            ret = layer(ret, prev_seq, mask)
+        return ret
         
 
 
 # Transformer model, https://arxiv.org/pdf/1706.03762.pdf
-class TransformerEncoderDecoder(torch.nn.Module):
+# For maximum flexibility, I have implemented two versions, one which
+# takes two sequences as input and another which takes one sequence.
+# The logic in get_transformer configures these two basic templates
+# into the three standard EncoderDecoder, EncoderOnly, and DecoderOnly
+# models, as well as custom options.
+def get_transformer(config, vocab_size, tgt_vocab_mask=None):
+    match config.transformer_type:
+        case TransformerType.ENCODER_DECODER:
+            return TransformerTwoSeq(config,
+                                     num_enc_layers=config.num_encoder_layers,
+                                     use_mask_enc=False,
+                                     num_dec_layers=config.num_decoder_layers,
+                                     use_mask_dec=True,
+                                     output_probs=True,
+                                     vocab_size=vocab_size,
+                                     tgt_vocab_mask=tgt_vocab_mask)
+        case TransformerType.ENCODER_ONLY:
+            return TransformerOneSeq(config,
+                                     num_layers=config.num_encoder_layers,
+                                     use_mask=False,
+                                     output_probs=False,
+                                     vocab_size=vocab_size,
+                                     vocab_mask=tgt_vocab_mask)
+        case TransformerType.DECODER_ONLY:
+            return TransformerOneSeq(config,
+                                     num_layers=config.num_decoder_layers,
+                                     use_mask=True,
+                                     output_probs=True,
+                                     vocab_size=vocab_size,
+                                     vocab_mask=tgt_vocab_mask)
+        case TransformerType.CUSTOM_TWO_SEQ:
+            return TransformerTwoSeq(config,
+                                     num_enc_layers=config.num_encoder_layers,
+                                     use_mask_enc=config.use_masked_att_encoder,
+                                     num_dec_layers=config.num_decoder_layers,
+                                     use_mask_dec=config.use_masked_att_decoder,
+                                     output_probs=config.output_probs,
+                                     vocab_size=vocab_size,
+                                     tgt_vocab_mask=tgt_vocab_mask)
+        case TransformerType.CUSTOM_ONE_SEQ:
+            return TransformerOneSeq(config,
+                                     num_layers=config.num_decoder_layers,
+                                     use_mask=config.use_masked_att_decoder,
+                                     output_probs=config.output_probs,
+                                     vocab_size=vocab_size,
+                                     vocab_mask=tgt_vocab_mask)
 
-    def __init__(self, config, vocab_size, tgt_mask):
+class TransformerTwoSeq(torch.nn.Module):
+    
+    def __init__(self, config, num_enc_layers, use_mask_enc, num_dec_layers, use_mask_dec, output_probs, vocab_size, tgt_vocab_mask=None):
         super().__init__()
-        self.tgt_mask   = tgt_mask
+        self.output_probs = output_probs
+        if self.output_probs:
+            if tgt_vocab_mask == None:
+                tgt_vocab_mask = torch.tensor([True]*vocab_size)
+            self.tgt_vocab_mask = tgt_vocab_mask
+
         self.embedding  = get_embedding(config, vocab_size)
         self.positional = get_positional_encoding(config)
-        self.encoder    = Encoder(config)
-        self.decoder    = Decoder(config)
-        
+        self.encoder    = EncoderOrDecoder(config,
+                                           num_layers=num_enc_layers,
+                                           take_two_seqs=False,
+                                           use_mask=use_mask_enc)
+        self.decoder    = EncoderOrDecoder(config,
+                                           num_layers=num_dec_layers,
+                                           take_two_seqs=True,
+                                           use_mask=use_mask_dec)
+
     # src: [batch, src_seq, vocab_size]
     # tgt: [batch, tgt_seq, vocab_size]
     # ret: [batch, tgt_seq, vocab_size]
@@ -297,42 +330,39 @@ class TransformerEncoderDecoder(torch.nn.Module):
         tgt_embed  = self.embedding(tgt)
         tgt_embed += self.positional(tgt)
         tgt_output = self.decoder(tgt_embed, src_output)
-        tgt_logits = self.embedding(tgt_output, reverse=True)
-        tgt_probs  = torch.nn.functional.log_softmax(tgt_logits[:,:,self.tgt_mask], dim=-1)
-        return tgt_probs
+        if not self.output_probs:
+            return tgt_output
+        else:
+            tgt_logits = self.embedding(tgt_output, reverse=True)
+            tgt_probs  = torch.nn.functional.log_softmax(tgt_logits[:,:,self.tgt_vocab_mask], dim=-1)
+            return tgt_probs
 
-class TransformerEncoderOnly(torch.nn.Module):
+class TransformerOneSeq(torch.nn.Module):
 
-    def __init__(self, config, vocab_size):
+    def __init__(self, config, num_layers, use_mask, output_probs, vocab_size, vocab_mask=None):
         super().__init__()
-        self.embedding  = get_embedding(config, vocab_size)
-        self.positional = get_positional_encoding(config)
-        self.encoder    = Encoder(config)
-        
-    # src: [batch, src_seq, vocab_size]
-    # ret: [batch, src_seq, vocab_size]
-    def forward(self, src):
-        src_embed  = self.embedding(src)
-        src_embed += self.positional(src)
-        src_output = self.encoder(src_embed)
-        return src_output
+        self.output_probs = output_probs
+        if self.output_probs:
+            if vocab_mask == None:
+                vocab_mask = torch.tensor([True]*vocab_size)
+            self.vocab_mask = vocab_mask
 
-class TransformerDecoderOnly(torch.nn.Module):
+        self.embedding    = get_embedding(config, vocab_size)
+        self.positional   = get_positional_encoding(config)
+        self.xxcoder      = EncoderOrDecoder(config,
+                                             num_layers=num_layers,
+                                             take_two_seqs=False,
+                                             use_mask=use_mask)
 
-    def __init__(self, config, vocab_size, tgt_mask):
-        super().__init__()
-        self.tgt_mask   = tgt_mask
-        self.embedding  = get_embedding(config, vocab_size)
-        self.positional = get_positional_encoding(config)
-        self.decoder    = DecoderOnly(config)
-        
-    # src: [batch, src_seq, vocab_size]
-    # tgt: [batch, tgt_seq, vocab_size]
-    # ret: [batch, tgt_seq, vocab_size]
-    def forward(self, tgt):
-        tgt_embed  = self.embedding(tgt)
-        tgt_embed += self.positional(tgt)
-        tgt_output = self.decoder(tgt_embed)
-        tgt_logits = self.embedding(tgt_output, reverse=True)
-        tgt_probs  = torch.nn.functional.log_softmax(tgt_logits[:,:,self.tgt_mask], dim=-1)
-        return tgt_probs
+    # seq: [batch, seq, vocab_size]
+    # ret: [batch, seq, vocab_size]
+    def forward(self, seq):
+        seq_embed  = self.embedding(seq)
+        seq_embed += self.positional(seq)
+        seq_output = self.xxcoder(seq_embed)
+        if not self.output_probs:
+            return seq_output
+        else:
+            seq_logits = self.embedding(seq_output, reverse=True)
+            seq_probs  = torch.nn.functional.log_softmax(seq_logits[:,:,self.vocab_mask], dim=-1)
+            return seq_probs
