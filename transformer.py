@@ -1,8 +1,7 @@
-# TODO(darcey): implement alternatives to LayerNorm like BatchNorm and ScaleNorm (see Toan's paper)
 # TODO(darcey): figure out if I need to do all the to_device stuff here
 # TODO(darcey): figure out if I need to include dtype information here
 # TODO(darcey): add dropout
-# TODO(darcey): look into better ways of initializing the parameters
+# TODO(darcey): look into methods of initializing the parameters (see Toan's paper)
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
 # TODO(darcey): consider switching to Brian's clever strategy for src/tgt masking
 
@@ -13,22 +12,30 @@ from configuration import *
 
 
 def get_embedding(config, vocab_size):
-    return Embedding(vocab_size, config.d_model)
+    return Embedding(vocab_size, config.d_model, config.fix_norm)
 
 class Embedding(torch.nn.Module):
     
-    def __init__(self, vocab_size, embed_dim):
+    def __init__(self, vocab_size, embed_dim, fix_norm):
         super().__init__()
+        self.fix_norm  = fix_norm
+        if self.fix_norm:
+            self.g     = torch.nn.Parameter(torch.rand(()))
         self.embed_dim = embed_dim
         self.embedding = torch.nn.Parameter(torch.rand(vocab_size, embed_dim))
 
     # seq:  [batch, seq, vocab_size]
     # ret:  [batch, seq, d_model]
     def forward(self, seq, reverse=False):
-        if not reverse:
-            return torch.matmul(seq, self.embedding) * math.sqrt(self.embed_dim)
+        if self.fix_norm:
+            emb_mat = self.g * self.embedding / torch.linalg.vector_norm(self.embedding, dim=-1, keepdim=True)
         else:
-            return torch.matmul(seq, torch.t(self.embedding))
+            emb_mat = self.embedding
+    
+        if not reverse:
+            return torch.matmul(seq, emb_mat) * math.sqrt(self.embed_dim)
+        else:
+            return torch.matmul(seq, torch.t(emb_mat))
 
 
 
@@ -77,6 +84,8 @@ def get_normalization(config):
             return torch.nn.Identity()
         case NormType.LAYER_NORM:
             return LayerNorm(config.d_model, config.layer_norm_epsilon)
+        case NormType.SCALE_NORM:
+            return ScaleNorm()
 
 class LayerNorm(torch.nn.Module):
 
@@ -93,6 +102,18 @@ class LayerNorm(torch.nn.Module):
         mu       = torch.mean(x, dim=-1, keepdim=True)                 # [batch, seq, 1]
         sigma_sq = torch.var(x, dim=-1, unbiased=False, keepdim=True)  # [batch, seq, 1]
         return self.gamma * (x - mu) / torch.sqrt(sigma_sq + self.epsilon) + self.beta
+
+class ScaleNorm(torch.nn.Module):
+
+    # Scale Norm: https://aclanthology.org/2019.iwslt-1.17.pdf
+    def __init__(self):
+        super().__init__()
+        self.g = torch.nn.Parameter(torch.rand(()))
+
+    # x:   [batch, seq, d_model]
+    # ret: [batch, seq, d_model]
+    def forward(self, x):
+        return self.g * x / torch.linalg.vector_norm(x, dim=-1, keepdim=True)
 
 
 

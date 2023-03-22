@@ -13,12 +13,23 @@ from transformer import *
 class TestEmbedding(unittest.TestCase):
     
     def setUp(self):
-        self.emb = Embedding(10,4)
+        self.emb = Embedding(10,4,fix_norm=False)
         
     def testShape(self):
         x = torch.rand(100,40,10)
-        out = self.emb(x)
+        x_emb = torch.rand(100,40,4)
+        
+        emb = Embedding(10,4,fix_norm=False)
+        out = emb(x)
         self.assertEqual(out.shape, (100,40,4))
+        out = emb(x_emb, reverse=True)
+        self.assertEqual(out.shape, (100,40,10))
+        
+        emb = Embedding(10,4,fix_norm=True)
+        out = emb(x)
+        self.assertEqual(out.shape, (100,40,4))
+        out = emb(x_emb, reverse=True)
+        self.assertEqual(out.shape, (100,40,10))
     
     def testForwardZeros(self):
         self.emb.embedding = torch.nn.Parameter(torch.zeros(10,4))
@@ -37,7 +48,23 @@ class TestEmbedding(unittest.TestCase):
                                         [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]]])
         actual_tensor = self.emb(input_tensor, reverse=True)
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
+
+    def testCorrectnessFixNorm(self):
+        emb = Embedding(2,4,fix_norm=True)
+        emb.g = torch.nn.Parameter(torch.tensor(1.0))
+        emb.embedding = torch.nn.Parameter(torch.tensor([[1.0, 1.0, 1.0, 1.0],
+                                                         [2.0, 2.0, 2.0, 2.0]]))
+
+        input_tensor = torch.tensor([[[1.0, 0.0]]])
+        correct_tensor = torch.tensor([[[1.0, 1.0, 1.0, 1.0]]])
+        actual_tensor = emb(input_tensor, reverse=False)
+        self.assertTrue(torch.equal(actual_tensor, correct_tensor))
         
+        input_tensor = torch.tensor([[[1.0, 1.0, 1.0, 1.0]]])
+        correct_tensor = torch.tensor([[[2.0, 2.0]]])
+        actual_tensor = emb(input_tensor, reverse=True)
+        self.assertTrue(torch.equal(actual_tensor, correct_tensor))
+
 
 
 class TestNullPositionalEncoding(unittest.TestCase):
@@ -104,6 +131,28 @@ class TestLayerNorm(unittest.TestCase):
         input_tensor = torch.tensor([[[3.0,1.0]]])
         correct_tensor = torch.tensor([[[1.0,-1.0]]])
         actual_tensor = ln(input_tensor)
+        self.assertTrue(torch.equal(actual_tensor, correct_tensor))
+
+class TestScaleNorm(unittest.TestCase):
+
+    def testShape(self):
+        sn = ScaleNorm()
+        x = torch.rand(6,5,4)
+        out = sn(x)
+        self.assertEqual(out.shape, (6,5,4))
+
+    def testCorrectness(self):
+        sn = ScaleNorm()
+        input_tensor = torch.tensor([[[1.0,1.0,1.0,1.0]]])
+        
+        sn.g = torch.nn.Parameter(torch.tensor(1.0))
+        correct_tensor = torch.tensor([[[0.5,0.5,0.5,0.5]]])
+        actual_tensor = sn(input_tensor)
+        self.assertTrue(torch.equal(actual_tensor, correct_tensor))
+        
+        sn.g = torch.nn.Parameter(torch.tensor(5.0))
+        correct_tensor = torch.tensor([[[2.5,2.5,2.5,2.5]]])
+        actual_tensor = sn(input_tensor)
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
 

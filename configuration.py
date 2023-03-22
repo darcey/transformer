@@ -32,6 +32,7 @@ class PositionalEncodingType(Enum):
 class NormType(Enum):
     NONE = 0
     LAYER_NORM = 1
+    SCALE_NORM = 2
 
 def get_config_arch():
     config_arch = dict()
@@ -61,6 +62,10 @@ def get_config_arch():
     config_arch["context_window_length"]  = 512
 
     # Normalization options
-    config_arch["norm_type"]              = NormType.LAYER_NORM
+    config_arch["norm_type"]              = NormType.SCALE_NORM
     config_arch["layer_norm_epsilon"]     = 1e-5
+    
+    # Embedding options
+    config_arch["fix_norm"]               = True
+
     return Namespace(**config_arch)
