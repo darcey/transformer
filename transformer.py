@@ -45,7 +45,7 @@ class NullPositionalEncoding(torch.nn.Module):
         super().__init__()
 
     # x:   [batch, seq, d_model]
-    # ret:        [seq, d_model]
+    # ret: [batch, seq, d_model]
     def forward(self, x):
         return torch.zeros_like(x)
 
@@ -174,78 +174,97 @@ class MultiHeadAttention(torch.nn.Module):
 
 
 
-# Implements an Encoder layer, a Decoder layer, or anything in between.
-#   Encoder layer: takes one sequence,   no masked self-attention
-#   Decoder layer: takes two sequences, has masked self-attention
-#   Decoder only:  takes one sequence,  has masked self-attention
-#   ???:           takes two sequences,  no masked self-attention
-class EncoderOrDecoderLayer(torch.nn.Module):
+class SublayerConnection(torch.nn.Module):
 
-    def __init__(self, config, take_two_seqs, use_mask):
+    def __init__(self, sublayer_func, sublayer, config):
         super().__init__()
         self.use_resid     = config.use_resid_connection
-        self.take_two_seqs = take_two_seqs
-        self.use_mask      = use_mask
-        
-        self.self_attention  = get_attention(config)
-        self.norm1           = get_normalization(config)
-        if take_two_seqs:
-            self.cross_attention = get_attention(config)
-            self.norm2           = get_normalization(config)
-        self.feed_forward    = get_feed_forward(config)
-        self.norm3           = get_normalization(config)
+        self.pre_norm      = config.pre_norm
+        self.norm          = get_normalization(config)
+        self.sublayer      = sublayer
+        self.sublayer_func = sublayer_func
 
     # prev_seq: [batch, prev_seq, d_model]
     # this_seq: [batch, this_seq, d_model]
     # mask:     [this_seq, this_seq]
     # ret:      [batch, this_seq, d_model]
-    def forward(self, this_seq, prev_seq=None, mask=None):
-        if ((prev_seq == None) != (not self.take_two_seqs)) or \
-           ((mask == None) != (not self.use_mask)):
-            raise ValueError("EncoderOrDecoderLayer: bad combination of arguments")
-        
-        if self.use_resid:
-            resid  = this_seq
-            resid += self.self_attention(resid, resid, resid, mask)
-            resid  = self.norm1(resid)
-            if self.take_two_seqs:
-                resid += self.cross_attention(resid, prev_seq, prev_seq)
-                resid  = self.norm2(resid)
-            resid += self.feed_forward(resid)
-            resid  = self.norm3(resid)
-            return resid
+    def forward(self, this_seq, *other_inputs):
+        ret = this_seq
+        ret = self.norm(ret) if self.pre_norm else ret
+        ret = self.sublayer_func(self.sublayer, ret, *other_inputs)
+        ret = ret + this_seq if self.use_resid else ret
+        ret = self.norm(ret) if not self.pre_norm else ret
+        return ret
 
-        else:
-            ret = self.norm1(self.self_attention(this_seq, this_seq, this_seq, mask))
-            if self.take_two_seqs:
-                ret = self.norm2(self.cross_attention(ret, prev_seq, prev_seq))
-            ret = self.norm3(self.feed_forward(ret))
-            return ret
+
+
+class Layer(torch.nn.Module):
+
+    def __init__(self, config, take_two_seqs, use_mask):
+        super().__init__()
+        self.use_resid     = config.use_resid_connection
+        self.use_mask      = use_mask
+        self.take_two_seqs = take_two_seqs
+        
+        self_attention         = get_attention(config)
+        self_att_func          = lambda s, y, m: s(y, y, y, m)
+        self.self_att_sublayer = SublayerConnection(self_att_func, self_attention, config)
+        
+        if take_two_seqs:
+            cross_attention         = get_attention(config)
+            cross_att_func          = lambda s, y, x: s(y, x, x)
+            self.cross_att_sublayer = SublayerConnection(cross_att_func, cross_attention, config)
+        
+        feed_forward      = get_feed_forward(config)
+        feed_forward_func = lambda s, y: s(y)
+        self.ff_sublayer  = SublayerConnection(feed_forward_func, feed_forward, config)
+        
+    # prev_seq: [batch, prev_seq, d_model]
+    # this_seq: [batch, this_seq, d_model]
+    # mask:     [this_seq, this_seq]
+    # ret:      [batch, this_seq, d_model]
+    def forward(self, this_seq, prev_seq=None, mask=None):
+        if ((prev_seq == None) != (not self.take_two_seqs)) or\
+           ((mask == None) != (not self.use_mask)):
+            raise ValueError("Layer: bad combination of arguments")
+        
+        ret = this_seq
+        ret = self.self_att_sublayer(ret, mask)
+        ret = self.cross_att_sublayer(ret, prev_seq) if self.take_two_seqs else ret
+        ret = self.ff_sublayer(ret) 
+        return ret
+
+
 
 # Implements an Encoder, Decoder, or anything in between.
-# Same four possibilities as EncoderOrDecoderLayer.
+#   Encoder:       takes one sequence,   no masked self-attention
+#   Decoder:       takes two sequences, has masked self-attention
+#   Decoder only:  takes one sequence,  has masked self-attention
+#   ???:           takes two sequences,  no masked self-attention
 class EncoderOrDecoder(torch.nn.Module):
     
     def __init__(self, config, num_layers, take_two_seqs, use_mask):
         super().__init__()
-        self.take_two_seqs = take_two_seqs
         self.use_mask      = use_mask
-        self.layers        = torch.nn.ModuleList([EncoderOrDecoderLayer(config, take_two_seqs, use_mask) for _ in range(num_layers)])
+        self.pre_norm      = config.pre_norm
+        if self.pre_norm:
+            self.norm      = get_normalization(config)
+        self.layers        = torch.nn.ModuleList([Layer(config, take_two_seqs, use_mask) for _ in range(num_layers)])
 
     # prev_seq: [batch, prev_seq, d_model]
     # this_seq: [batch, this_seq, d_model]
     # ret:      [batch, this_seq, d_model]
     def forward(self, this_seq, prev_seq=None):
-        if (prev_seq == None) != (not self.take_two_seqs):
-            raise ValueError("EncoderOrDecoder: bad combination of arguments")
-        mask = None
         if self.use_mask:
-            seq_len = this_seq.size(1)
-            mask = torch.triu(torch.full((seq_len, seq_len), float('-inf')), diagonal=1)
-        
+            l = this_seq.size(1)
+            mask = torch.triu(torch.full((l, l), float('-inf')), diagonal=1)
+        else:
+            mask = None        
+
         ret = this_seq
         for layer in self.layers:
-            ret = layer(ret, prev_seq, mask)
+            ret = layer(ret, prev_seq, mask)        
+        ret = self.norm(ret) if self.pre_norm else ret
         return ret
         
 

@@ -3,7 +3,7 @@ from argparse import Namespace
 
 # Allows the three standard transformer configurations (Encoder-Decoder, 
 # Encoder only, Decoder only) as well as two "Custom" configurations that
-# allow maximum flexibility.
+# permit maximum flexibility.
 
 # Encoder-Decoder model:
 #   encoder: takes one sequence,  no masked self-attention,  outputs encodings
@@ -35,22 +35,32 @@ class NormType(Enum):
 
 def get_config_arch():
     config_arch = dict()
-    config_arch["context_window_length"]  = 512
+
+    # Major architectural options
     config_arch["transformer_type"]       = TransformerType.ENCODER_DECODER
-    
+    config_arch["num_encoder_layers"]     = 6
+    config_arch["num_decoder_layers"]     = 6
+    config_arch["d_model"]                = 512
     # These options are only relevant if TransformerType is CUSTOM*
     config_arch["output_probs"]           = True
     config_arch["use_masked_att_encoder"] = False
     config_arch["use_masked_att_decoder"] = True
     
-    config_arch["num_encoder_layers"]     = 6
-    config_arch["num_decoder_layers"]     = 6
+    # Layer options
+    config_arch["use_resid_connection"]   = True
+    config_arch["pre_norm"]               = True
+
+    # Attention options
     config_arch["num_attention_heads"]    = 8
-    config_arch["d_model"]                = 512
+
+    # Feed-forward options
     config_arch["d_ff"]                   = 2048
     
-    config_arch["use_resid_connection"]   = True
+    # Positional encoding options
     config_arch["pos_enc_type"]           = PositionalEncodingType.SINUSOIDAL
+    config_arch["context_window_length"]  = 512
+
+    # Normalization options
     config_arch["norm_type"]              = NormType.LAYER_NORM
     config_arch["layer_norm_epsilon"]     = 1e-5
     return Namespace(**config_arch)
