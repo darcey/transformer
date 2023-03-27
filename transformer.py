@@ -3,6 +3,7 @@
 # TODO(darcey): add dropout
 # TODO(darcey): look into methods of initializing the parameters (see Toan's paper)
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
+# TODO(darcey): once Vocab class is implemented, have the default target mask mask out stuff like BOS and PAD (possibly here, possibly in some other file)
 # TODO(darcey): consider switching to Brian's clever strategy for src/tgt masking
 
 import math
@@ -15,25 +16,29 @@ def get_embedding(config, vocab_size):
     return Embedding(vocab_size, config.d_model, config.fix_norm)
 
 class Embedding(torch.nn.Module):
-    
+
     def __init__(self, vocab_size, embed_dim, fix_norm):
         super().__init__()
-        self.fix_norm  = fix_norm
+
+        # FixNorm is from https://aclanthology.org/2019.iwslt-1.17.pdf
+        self.fix_norm = fix_norm
         if self.fix_norm:
-            self.g     = torch.nn.Parameter(torch.rand(()))
-        self.embed_dim = embed_dim
-        self.embedding = torch.nn.Parameter(torch.rand(vocab_size, embed_dim))
+            self.g    = torch.nn.Parameter(torch.rand(()))
+
+        self.embed_dim      = embed_dim
+        self.embed_dim_sqrt = math.sqrt(embed_dim)
+        self.embedding      = torch.nn.Parameter(torch.rand(vocab_size, embed_dim))
 
     # seq:  [batch, seq, vocab_size]
     # ret:  [batch, seq, d_model]
     def forward(self, seq, reverse=False):
         if self.fix_norm:
-            emb_mat = self.g * self.embedding / torch.linalg.vector_norm(self.embedding, dim=-1, keepdim=True)
+            emb_mat = self.g * torch.nn.functional.normalize(self.embedding, dim=-1)
         else:
             emb_mat = self.embedding
-    
+
         if not reverse:
-            return torch.matmul(seq, emb_mat) * math.sqrt(self.embed_dim)
+            return torch.matmul(seq, emb_mat) * self.embed_dim_sqrt
         else:
             return torch.matmul(seq, torch.t(emb_mat))
 
@@ -47,7 +52,7 @@ def get_positional_encoding(config):
             return SinusoidalPositionalEncoding(config.context_window_length, config.d_model)
 
 class NullPositionalEncoding(torch.nn.Module):
-    
+
     def __init__(self):
         super().__init__()
 
@@ -95,7 +100,7 @@ class LayerNorm(torch.nn.Module):
         self.epsilon = epsilon
         self.gamma   = torch.nn.Parameter(torch.rand(dim))
         self.beta    = torch.nn.Parameter(torch.rand(dim))
-    
+
     # x:   [batch, seq, d_model]
     # ret: [batch, seq, d_model]
     def forward(self, x):
@@ -113,7 +118,7 @@ class ScaleNorm(torch.nn.Module):
     # x:   [batch, seq, d_model]
     # ret: [batch, seq, d_model]
     def forward(self, x):
-        return self.g * x / torch.linalg.vector_norm(x, dim=-1, keepdim=True)
+        return self.g * torch.nn.functional.normalize(x, dim=-1)
 
 
 
@@ -121,12 +126,12 @@ def get_feed_forward(config):
     return FeedForward(config.d_model, config.d_ff)
 
 class FeedForward(torch.nn.Module):
-    
+
     def __init__(self, input_dim, hidden_dim):
         super().__init__()
         self.layer1 = torch.nn.Linear(input_dim, hidden_dim, bias=True)
         self.layer2 = torch.nn.Linear(hidden_dim, input_dim, bias=True)
-    
+
     # x:   [batch, seq, d_model]
     # ret: [batch, seq, d_model]
     def forward(self, x):
@@ -141,10 +146,10 @@ def get_attention(config):
     return MultiHeadAttention(config.d_model, config.num_attention_heads)
 
 class MultiHeadAttention(torch.nn.Module):
-    
+
     def __init__(self, input_dim, num_heads, qk_dim=None, v_dim=None):
         super().__init__()
-    
+
         if qk_dim == None or v_dim == None:
             if input_dim % num_heads > 0:
                 raise ValueError("MultiHeadAttention: input_dim should be divisible by num_heads")
@@ -152,12 +157,12 @@ class MultiHeadAttention(torch.nn.Module):
         self.num_heads = num_heads
         self.qk_dim    = qk_dim if qk_dim else int(input_dim / num_heads)
         self.v_dim     = v_dim  if v_dim  else int(input_dim / num_heads)
-        
+
         self.proj_q   = torch.nn.Linear(input_dim, num_heads*self.qk_dim, bias=False)
         self.proj_k   = torch.nn.Linear(input_dim, num_heads*self.qk_dim, bias=False)
         self.proj_v   = torch.nn.Linear(input_dim, num_heads*self.v_dim, bias=False)
         self.proj_out = torch.nn.Linear(num_heads*self.v_dim, input_dim, bias=False)
-    
+
     # q:    [batch, seq1, d_input]
     # k:    [batch, seq2, d_input]
     # v:    [batch, seq2, d_input]
@@ -167,30 +172,30 @@ class MultiHeadAttention(torch.nn.Module):
         batch = q.size(0)
         seq1 = q.size(1)
         seq2 = k.size(1)
-        
+
         # project to heads
         q = self.proj_q(q)
         k = self.proj_k(k)
         v = self.proj_v(v)
-        
+
         # reshape to heads, permute for matrix multiplication
         q = q.reshape(batch, seq1, self.num_heads, self.qk_dim).permute((0,2,1,3))
         k = k.reshape(batch, seq2, self.num_heads, self.qk_dim).permute((0,2,3,1))
         v = v.reshape(batch, seq2, self.num_heads, self.v_dim).permute((0,2,1,3))
-        
+
         # do multihead attention
         key_queries = torch.matmul(q,k)/math.sqrt(self.qk_dim)
         if mask is not None:
             key_queries += mask
         probs = torch.softmax(key_queries, dim=-1)
         ret = torch.matmul(probs, v)
-        
+
         # reshape back
         ret = ret.reshape(batch, seq1, self.num_heads*self.v_dim)
-        
+
         # project back
         ret = self.proj_out(ret)
-        
+
         return ret
 
 
@@ -200,8 +205,11 @@ class SublayerConnection(torch.nn.Module):
     def __init__(self, sublayer_func, sublayer, config):
         super().__init__()
         self.use_resid     = config.use_resid_connection
+
+        # PreNorm is from https://aclanthology.org/2019.iwslt-1.17.pdf
         self.pre_norm      = config.pre_norm
         self.norm          = get_normalization(config)
+
         self.sublayer      = sublayer
         self.sublayer_func = sublayer_func
 
@@ -226,20 +234,20 @@ class Layer(torch.nn.Module):
         self.use_resid     = config.use_resid_connection
         self.use_mask      = use_mask
         self.take_two_seqs = take_two_seqs
-        
+
         self_attention         = get_attention(config)
         self_att_func          = lambda s, y, m: s(y, y, y, m)
         self.self_att_sublayer = SublayerConnection(self_att_func, self_attention, config)
-        
+
         if take_two_seqs:
             cross_attention         = get_attention(config)
             cross_att_func          = lambda s, y, x: s(y, x, x)
             self.cross_att_sublayer = SublayerConnection(cross_att_func, cross_attention, config)
-        
+
         feed_forward      = get_feed_forward(config)
         feed_forward_func = lambda s, y: s(y)
         self.ff_sublayer  = SublayerConnection(feed_forward_func, feed_forward, config)
-        
+
     # prev_seq: [batch, prev_seq, d_model]
     # this_seq: [batch, this_seq, d_model]
     # mask:     [this_seq, this_seq]
@@ -248,7 +256,7 @@ class Layer(torch.nn.Module):
         if ((prev_seq == None) != (not self.take_two_seqs)) or\
            ((mask == None) != (not self.use_mask)):
             raise ValueError("Layer: bad combination of arguments")
-        
+
         ret = this_seq
         ret = self.self_att_sublayer(ret, mask)
         ret = self.cross_att_sublayer(ret, prev_seq) if self.take_two_seqs else ret
@@ -263,7 +271,7 @@ class Layer(torch.nn.Module):
 #   Decoder only:  takes one sequence,  has masked self-attention
 #   ???:           takes two sequences,  no masked self-attention
 class EncoderOrDecoder(torch.nn.Module):
-    
+
     def __init__(self, config, num_layers, take_two_seqs, use_mask):
         super().__init__()
         self.use_mask      = use_mask
@@ -284,10 +292,10 @@ class EncoderOrDecoder(torch.nn.Module):
 
         ret = this_seq
         for layer in self.layers:
-            ret = layer(ret, prev_seq, mask)        
+            ret = layer(ret, prev_seq, mask)
         ret = self.norm(ret) if self.pre_norm else ret
         return ret
-        
+
 
 
 # Transformer model, https://arxiv.org/pdf/1706.03762.pdf
@@ -339,7 +347,7 @@ def get_transformer(config, vocab_size, tgt_vocab_mask=None):
                                      vocab_mask=tgt_vocab_mask)
 
 class TransformerTwoSeq(torch.nn.Module):
-    
+
     def __init__(self, config, num_enc_layers, use_mask_enc, num_dec_layers, use_mask_dec, output_probs, vocab_size, tgt_vocab_mask=None):
         super().__init__()
         self.output_probs = output_probs
@@ -366,7 +374,7 @@ class TransformerTwoSeq(torch.nn.Module):
         src_embed  = self.embedding(src)
         src_embed += self.positional(src)
         src_output = self.encoder(src_embed)
-        
+
         tgt_embed  = self.embedding(tgt)
         tgt_embed += self.positional(tgt)
         tgt_output = self.decoder(tgt_embed, src_output)

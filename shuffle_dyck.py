@@ -13,7 +13,7 @@ class ShuffleDyckRecognizer():
 
     def __init__(self, k):
 
-        # vocab is [0, ..., [k-1, ]0, ..., ]k-1    
+        # vocab is [0, ..., [k-1, ]0, ..., ]k-1
         vocab_size = 2*k
 
         config = get_config_arch()
@@ -27,9 +27,9 @@ class ShuffleDyckRecognizer():
         config.use_resid_connection = False
         config.pos_enc_type = PositionalEncodingType.NONE
         config.norm_type = NormType.NONE
-        
+
         t = transformer.get_transformer(config, vocab_size)
-        
+
         emb = torch.zeros(2*k, 2*k)
         for j in range(k):
             emb[j, 2*j] = 1
@@ -38,19 +38,19 @@ class ShuffleDyckRecognizer():
             emb[k+j, 2*j+1] = 1
         emb = emb / math.sqrt(2*k)
         t.embedding.embedding = torch.nn.Parameter(emb)
-        
+
         proj_k = torch.zeros(2*k, 2*k)
         proj_v = torch.eye(2*k, 2*k)
         proj_out = torch.eye(2*k, 2*k)
         t.xxcoder.layers[0].self_att_sublayer.sublayer.proj_k.weight = torch.nn.Parameter(proj_k)
         t.xxcoder.layers[0].self_att_sublayer.sublayer.proj_v.weight = torch.nn.Parameter(proj_v)
         t.xxcoder.layers[0].self_att_sublayer.sublayer.proj_out.weight = torch.nn.Parameter(proj_out)
-        
+
         t.xxcoder.layers[0].ff_sublayer.sublayer.layer1 = torch.nn.Linear(2*k, 2*k, bias=False)
         t.xxcoder.layers[0].ff_sublayer.sublayer.layer2 = torch.nn.Linear(2*k, 2*k, bias=False)
         t.xxcoder.layers[0].ff_sublayer.sublayer.layer1.weight = torch.nn.Parameter(torch.eye(2*k, 2*k))
         t.xxcoder.layers[0].ff_sublayer.sublayer.layer2.weight = torch.nn.Parameter(torch.eye(2*k, 2*k))
-        
+
         self.k = k
         self.vocab_size = vocab_size
         self.transformer = t

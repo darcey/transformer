@@ -46,7 +46,7 @@ def get_config_arch():
     config_arch["output_probs"]           = True
     config_arch["use_masked_att_encoder"] = False
     config_arch["use_masked_att_decoder"] = True
-    
+
     # Layer options
     config_arch["use_resid_connection"]   = True
     config_arch["pre_norm"]               = True
