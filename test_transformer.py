@@ -434,8 +434,8 @@ class TestEncoderOrDecoder(unittest.TestCase):
         self.config = get_config_arch()
 
     def testBadInput(self):
-        x = torch.rand(100,10,512)
-        y = torch.rand(100,20,512)
+        x = torch.rand(50,10,512)
+        y = torch.rand(50,20,512)
 
         # encoder
         e = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, use_mask=False)
@@ -448,40 +448,40 @@ class TestEncoderOrDecoder(unittest.TestCase):
             out = d(y)
 
     def testShape(self):
-        x = torch.rand(100,10,512)
-        y = torch.rand(100,20,512)
+        x = torch.rand(50,10,512)
+        y = torch.rand(50,20,512)
 
         # encoder
         e = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, use_mask=False)
         out = e(y)
-        self.assertEqual(out.shape, (100,20,512))
+        self.assertEqual(out.shape, (50,20,512))
 
         # decoder only
         do = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, use_mask=True)
         out = do(y)
-        self.assertEqual(out.shape, (100,20,512))
+        self.assertEqual(out.shape, (50,20,512))
 
         # ???
         weird = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=False)
         out = weird(y, x)
-        self.assertEqual(out.shape, (100,20,512))
+        self.assertEqual(out.shape, (50,20,512))
 
         # decoder
         d = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
         out = d(y, x)
-        self.assertEqual(out.shape, (100,20,512))
+        self.assertEqual(out.shape, (50,20,512))
 
         # prenorm
         self.config.pre_norm = True
         d_pre = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
         out = d_pre(y, x)
-        self.assertEqual(out.shape, (100,20,512))
+        self.assertEqual(out.shape, (50,20,512))
 
         # postnorm
         self.config.pre_norm = False
         d_post = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
         out = d_post(y, x)
-        self.assertEqual(out.shape, (100,20,512))
+        self.assertEqual(out.shape, (50,20,512))
 
 
 
