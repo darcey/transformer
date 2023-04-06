@@ -2,6 +2,7 @@ from enum import Enum
 
 class SpecialTokens(Enum):
     PAD = 0
-    BOS = 1
-    EOS = 2
-    CLS = 3
+    UNK = 1
+    BOS = 2
+    EOS = 3
+    CLS = 4
