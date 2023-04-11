@@ -7,33 +7,43 @@
 # TODO(darcey): implement classifier learning also
 
 import torch
-import vocabulary
+from vocabulary import SpecialTokens
 
 class Trainer():
 
-    def __init__(self, model, vocab_size):
+    def __init__(self, model, vocab):
+        self.vocab = vocab
         self.model = model
         self.optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
+        self.max_epochs = 5
+        self.epoch_size = 20
+        self.num_epochs = 0
+        self.num_steps = 0
+        self.num_toks = 0
+
         # TODO(darcey): fix this (see TODO note above)
         self.label_smoothing = 0.1
-        ls_counts = torch.tensor([1.0]*vocab_size)
-        pad_idx = vocabulary.SpecialTokens.PAD.value
+        ls_counts = torch.tensor([1.0]*len(self.vocab))
+        pad_idx = self.vocab.tok_to_idx(SpecialTokens.PAD)
         ls_counts[pad_idx] = 0
         ls_counts = ls_counts / torch.sum(ls_counts)
         self.label_smoothing_counts = ls_counts
 
         return
 
-#    def train(self, train, dev):
-#        for epoch in range(self.max_epochs):
-#            for _ in range(self.epoch_size):
-#                (src, tgt_in, tgt_out) = train.next_batch()
-#                train_one_step
-#            [evaluate perplexity]
-#            [evaluate bleu]
-#            [save checkpoints as needed]
-#            [adjust learning rate / early stopping]
+    def train(self, train, dev):
+        for epoch in range(self.max_epochs):
+            for step in range(self.epoch_size):
+                batch = train.get_batch(batch["src"], batch["tgt_in"], batch["tgt_out"])
+                # compute train perplexity?
+                self.num_steps += 1
+                self.num_toks += batch["num_tgt_toks"]
+            # evaluate dev perplexity
+            # evaluate dev BLEU
+            # save checkpoints as needed
+            # adjust learning rate / early stopping
+            self.num_epochs += 1
 
     def train_one_step(self, src, tgt_in, tgt_out):
         self.optimizer.zero_grad()
@@ -51,7 +61,7 @@ class Trainer():
         vocab_size   = predicted.size(-1)
         predicted    = predicted.reshape(-1, vocab_size)
         actual       = actual.reshape(-1, vocab_size)
-        pad_idx      = vocabulary.SpecialTokens.PAD.value
+        pad_idx      = self.vocab.tok_to_idx(SpecialTokens.PAD)
         non_pad_mask = (actual[:, pad_idx] != 1)
         predicted    = predicted[non_pad_mask]
         actual       = actual[non_pad_mask]

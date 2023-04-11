@@ -2,15 +2,18 @@ import torch
 import torch.nn.functional as F
 import unittest
 from dataset import *
-
+from vocabulary import *
 
 
 class TestSeq2SeqTrainDataset(unittest.TestCase):
 
+    def setUp(self):
+        self.vocab = Vocabulary([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
+
     def testSortByTgtLen(self):
         src = [[1,2,3,4],[1,2,3,4,5],[1,2],[1,2,3]]
         tgt = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15]]
-        ds = Seq2SeqTrainDataset(src, tgt, 100, 16)
+        ds = Seq2SeqTrainDataset(src, tgt, 100, self.vocab)
         
         sorted_src_correct = [[1,2],[1,2,3,4,5],[1,2,3,4],[1,2,3]]
         sorted_tgt_correct = [[10,11,12],[10,11,12,13],[10,11,12,13,14],[10,11,12,13,14,15]]
@@ -22,11 +25,11 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7]]
         tgt_sents = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15]]
         sent_list = list(zip(src_sents, tgt_sents))
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 100, 16)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 100, self.vocab)
         
-        PAD = vocabulary.SpecialTokens.PAD.value
-        BOS = vocabulary.SpecialTokens.BOS.value
-        EOS = vocabulary.SpecialTokens.EOS.value
+        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
+        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
+        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
         src_correct = torch.tensor([[5,6,7,8,EOS,PAD],
                                     [5,6,7,8,9,EOS],
                                     [5,6,EOS,PAD,PAD,PAD],
@@ -39,7 +42,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
                                         [10,11,12,13,EOS,PAD,PAD],
                                         [10,11,12,EOS,PAD,PAD,PAD],
                                         [10,11,12,13,14,15,EOS]])
-        actual = ds.make_one_batch(sent_list, 16)
+        actual = ds.make_one_batch(sent_list)
         self.assertTrue(torch.equal(actual["src"], F.one_hot(src_correct,16)))
         self.assertTrue(torch.equal(actual["tgt_in"], F.one_hot(tgt_in_correct,16)))
         self.assertTrue(torch.equal(actual["tgt_out"], F.one_hot(tgt_out_correct,16)))
@@ -49,11 +52,11 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testMakeBatches(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7,8,9],[5,6,7,8],[5,6,7]]
         tgt_sents = [[10,11,12],[10,11,12,13],[10,11,12,13],[10,11,12,13,14],[10,11,12,13,14,15]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 7, 16)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 8, self.vocab)
 
-        PAD = vocabulary.SpecialTokens.PAD.value
-        BOS = vocabulary.SpecialTokens.BOS.value
-        EOS = vocabulary.SpecialTokens.EOS.value
+        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
+        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
+        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
         src_correct_1 = F.one_hot(torch.tensor([[5,6,EOS,PAD,PAD],[5,6,8,9,EOS]]),16)
         src_correct_2 = F.one_hot(torch.tensor([[5,6,7,8,9,EOS],[5,6,7,8,EOS,PAD]]),16)
         src_correct_3 = F.one_hot(torch.tensor([[5,6,7,EOS]]),16)
@@ -64,7 +67,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         tgt_out_correct_2 = F.one_hot(torch.tensor([[10,11,12,13,EOS,PAD],[10,11,12,13,14,EOS]]),16)
         tgt_out_correct_3 = F.one_hot(torch.tensor([[10,11,12,13,14,15,EOS]]),16)
 
-        actual = ds.make_batches(src_sents, tgt_sents, 7, 16)
+        actual = ds.make_batches(src_sents, tgt_sents, 8)
 
         self.assertEqual(len(actual), 3)
         self.assertTrue(torch.equal(actual[0]["src"], src_correct_1))
@@ -86,11 +89,11 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testInit(self):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,8,9]]
         tgt_sents = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15],[10,11,12,13]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 7, 16)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 8, self.vocab)
         
-        PAD = vocabulary.SpecialTokens.PAD.value
-        BOS = vocabulary.SpecialTokens.BOS.value
-        EOS = vocabulary.SpecialTokens.EOS.value
+        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
+        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
+        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
         src_correct_1 = F.one_hot(torch.tensor([[5,6,EOS,PAD,PAD,PAD],[5,6,7,8,9,EOS]]),16)
         src_correct_2 = F.one_hot(torch.tensor([[5,6,8,9,EOS],[5,6,7,8,EOS]]),16)
         src_correct_3 = F.one_hot(torch.tensor([[5,6,7,EOS]]),16)
@@ -123,7 +126,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testIter(self):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,8,9]]
         tgt_sents = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15],[10,11,12,13]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 7, 16)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 8, self.vocab)
         ds.batches = [1, 2, 3, 4]
         
         # test one iteration

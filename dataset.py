@@ -4,7 +4,7 @@
 import random
 import numpy as np
 import torch
-import vocabulary
+from vocabulary import SpecialTokens
 
 
 
@@ -12,9 +12,10 @@ class Seq2SeqTrainDataset():
 
     # assumes src, tgt are lists of lists of token indices
     # sorts by tgt length because that determines number of training steps
-    def __init__(self, src, tgt, batch_size, vocab_size):
+    def __init__(self, src, tgt, batch_size, vocab):
+        self.vocab = vocab
         sorted_src, sorted_tgt = self.sort_by_tgt_len(src, tgt)
-        self.batches = self.make_batches(sorted_src, sorted_tgt, batch_size, vocab_size)
+        self.batches = self.make_batches(sorted_src, sorted_tgt, batch_size)
         self.num_iters = 0
         self.batch_iter = self.get_batch_iter()
 
@@ -25,24 +26,24 @@ class Seq2SeqTrainDataset():
         sorted_tgt = [tgt[i] for i in sorted_idxs]
         return sorted_src, sorted_tgt
 
-    def make_batches(self, src, tgt, batch_size, vocab_size):
+    def make_batches(self, src, tgt, batch_size):
         batches = []
 
         curr_batch = []
         curr_num_toks = 0
         for (src_sent, tgt_sent) in zip(src, tgt):
             curr_batch.append((src_sent, tgt_sent))
-            curr_num_toks += len(tgt_sent)
+            curr_num_toks += len(tgt_sent) + 1
             if curr_num_toks >= batch_size:
-                batches.append(self.make_one_batch(curr_batch, vocab_size))
+                batches.append(self.make_one_batch(curr_batch))
                 curr_batch = []
                 curr_num_toks = 0
         if len(curr_batch) > 0:
-            batches.append(self.make_one_batch(curr_batch, vocab_size))
+            batches.append(self.make_one_batch(curr_batch))
 
         return batches
 
-    def make_one_batch(self, sent_list, vocab_size):
+    def make_one_batch(self, sent_list):
         num_sents   = len(sent_list)
         max_src_len = max([len(src_sent) for (src_sent, _) in sent_list])
         max_tgt_len = max([len(tgt_sent) for (_, tgt_sent) in sent_list])
@@ -51,17 +52,19 @@ class Seq2SeqTrainDataset():
         tgt_in_tensor  = torch.full((num_sents, max_tgt_len+1), 0)
         tgt_out_tensor = torch.full((num_sents, max_tgt_len+1), 0)
 
-        PAD = [vocabulary.SpecialTokens.PAD.value]
-        BOS = [vocabulary.SpecialTokens.BOS.value]
-        EOS = [vocabulary.SpecialTokens.EOS.value]
+        PAD = [self.vocab.tok_to_idx(SpecialTokens.PAD)]
+        BOS = [self.vocab.tok_to_idx(SpecialTokens.BOS)]
+        EOS = [self.vocab.tok_to_idx(SpecialTokens.EOS)]
         for i, (src_sent, tgt_sent) in enumerate(sent_list):
             src_tensor[i]     = torch.tensor(src_sent + EOS + PAD*(max_src_len - len(src_sent)))
             tgt_in_tensor[i]  = torch.tensor(BOS + tgt_sent + PAD*(max_tgt_len - len(tgt_sent)))
             tgt_out_tensor[i] = torch.tensor(tgt_sent + EOS + PAD*(max_tgt_len - len(tgt_sent)))
 
-        num_src_toks = torch.sum(src_tensor != vocabulary.SpecialTokens.PAD.value)
-        num_tgt_toks = torch.sum(tgt_in_tensor != vocabulary.SpecialTokens.PAD.value)
+        pad_idx = self.vocab.tok_to_idx(SpecialTokens.PAD)
+        num_src_toks = torch.sum(src_tensor != pad_idx)
+        num_tgt_toks = torch.sum(tgt_in_tensor != pad_idx)
 
+        vocab_size = len(self.vocab)
         return {
             "src": torch.nn.functional.one_hot(src_tensor, vocab_size),
             "tgt_in": torch.nn.functional.one_hot(tgt_in_tensor, vocab_size),

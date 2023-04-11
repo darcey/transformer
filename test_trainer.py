@@ -3,6 +3,7 @@ import torch.testing
 import unittest
 import copy
 from trainer import *
+from vocabulary import *
 
 
 
@@ -10,9 +11,10 @@ class TestLoss(unittest.TestCase):
 
     def setUp(self):
         self.model = torch.nn.Linear(10,10)
+        self.vocab = Vocabulary([],[])
 
     def testShape(self):
-        trainer = Trainer(self.model, 4)
+        trainer = Trainer(self.model, self.vocab)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -23,7 +25,7 @@ class TestLoss(unittest.TestCase):
 
     # no label smoothing, no PAD, perfect predictions
     def testPerfectPrediction(self):
-        trainer = Trainer(self.model, 4)
+        trainer = Trainer(self.model, self.vocab)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -39,7 +41,7 @@ class TestLoss(unittest.TestCase):
 
     # no label smoothing, no PAD, random predictions
     def testNoLabelSmoothing(self):
-        trainer = Trainer(self.model, 4)
+        trainer = Trainer(self.model, self.vocab)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -51,7 +53,7 @@ class TestLoss(unittest.TestCase):
 
     # no label smoothing, PAD
     def testNoLabelSmoothingPad(self):
-        trainer = Trainer(self.model, 4)
+        trainer = Trainer(self.model, self.vocab)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -64,7 +66,7 @@ class TestLoss(unittest.TestCase):
 
     # maximum label smoothing, no PAD, no label smoothing mask
     def testMaxLabelSmoothing(self):
-        trainer = Trainer(self.model, 4)
+        trainer = Trainer(self.model, self.vocab)
         trainer.label_smoothing = 1
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -77,7 +79,7 @@ class TestLoss(unittest.TestCase):
 
     # maximum label smoothing, no PAD, label smoothing mask
     def testMaxLabelSmoothingMask(self):
-        trainer = Trainer(self.model, 4)
+        trainer = Trainer(self.model, self.vocab)
         trainer.label_smoothing = 1
         trainer.label_smoothing_counts = torch.tensor([0.0, 0.0, 0.5, 0.5])
 
@@ -90,7 +92,7 @@ class TestLoss(unittest.TestCase):
     
     # normal loss and label smoothing, no PAD, no mask
     def testInterpolation(self):
-        trainer = Trainer(self.model, 4)
+        trainer = Trainer(self.model, self.vocab)
         trainer.label_smoothing = 0.5
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -106,22 +108,25 @@ class TestLoss(unittest.TestCase):
 class TestTrainOneStep(unittest.TestCase):
 
     def testParamsUpdate(self):
+        vocab = Vocabulary([],[])
+        l = len(vocab)
+
         class FakeModelClass(torch.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.lin1 = torch.nn.Linear(10,10)
-                self.lin2 = torch.nn.Linear(10,10)
+                self.lin1 = torch.nn.Linear(l,l)
+                self.lin2 = torch.nn.Linear(l,l)
             def forward(self, in1, in2):
                 return self.lin1(in1) + self.lin2(in2)
 
         model = FakeModelClass()
         model.label_smoothing = 0.0
         model_old = copy.deepcopy(model)
-        inputs1 = torch.rand(2,5,10)
-        inputs2 = torch.rand(2,5,10)
-        targets = torch.rand(2,5,10)
+        inputs1 = torch.rand(2,5,l)
+        inputs2 = torch.rand(2,5,l)
+        targets = torch.rand(2,5,l)
 
-        trainer = Trainer(model,10)
+        trainer = Trainer(model, vocab)
         trainer.train_one_step(inputs1, inputs2, targets)
 
         old_params = {name:param for name, param in model_old.named_parameters()}
