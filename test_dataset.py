@@ -1,5 +1,4 @@
 import torch
-import torch.nn.functional as F
 import unittest
 from dataset import *
 from vocabulary import *
@@ -43,9 +42,9 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
                                         [10,11,12,EOS,PAD,PAD,PAD],
                                         [10,11,12,13,14,15,EOS]])
         actual = ds.make_one_batch(sent_list)
-        self.assertTrue(torch.equal(actual["src"], F.one_hot(src_correct,16)))
-        self.assertTrue(torch.equal(actual["tgt_in"], F.one_hot(tgt_in_correct,16)))
-        self.assertTrue(torch.equal(actual["tgt_out"], F.one_hot(tgt_out_correct,16)))
+        self.assertTrue(torch.equal(actual["src"], src_correct))
+        self.assertTrue(torch.equal(actual["tgt_in"], tgt_in_correct))
+        self.assertTrue(torch.equal(actual["tgt_out"], tgt_out_correct))
         self.assertEqual(actual["num_src_toks"], 18)
         self.assertEqual(actual["num_tgt_toks"], 22)
 
@@ -57,15 +56,15 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
         BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
         EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
-        src_correct_1 = F.one_hot(torch.tensor([[5,6,EOS,PAD,PAD],[5,6,8,9,EOS]]),16)
-        src_correct_2 = F.one_hot(torch.tensor([[5,6,7,8,9,EOS],[5,6,7,8,EOS,PAD]]),16)
-        src_correct_3 = F.one_hot(torch.tensor([[5,6,7,EOS]]),16)
-        tgt_in_correct_1 = F.one_hot(torch.tensor([[BOS,10,11,12,PAD],[BOS,10,11,12,13]]),16)
-        tgt_in_correct_2 = F.one_hot(torch.tensor([[BOS,10,11,12,13,PAD],[BOS,10,11,12,13,14]]),16)
-        tgt_in_correct_3 = F.one_hot(torch.tensor([[BOS,10,11,12,13,14,15]]),16)
-        tgt_out_correct_1 = F.one_hot(torch.tensor([[10,11,12,EOS,PAD],[10,11,12,13,EOS]]),16)
-        tgt_out_correct_2 = F.one_hot(torch.tensor([[10,11,12,13,EOS,PAD],[10,11,12,13,14,EOS]]),16)
-        tgt_out_correct_3 = F.one_hot(torch.tensor([[10,11,12,13,14,15,EOS]]),16)
+        src_correct_1 = torch.tensor([[5,6,EOS,PAD,PAD],[5,6,8,9,EOS]])
+        src_correct_2 = torch.tensor([[5,6,7,8,9,EOS],[5,6,7,8,EOS,PAD]])
+        src_correct_3 = torch.tensor([[5,6,7,EOS]])
+        tgt_in_correct_1 = torch.tensor([[BOS,10,11,12,PAD],[BOS,10,11,12,13]])
+        tgt_in_correct_2 = torch.tensor([[BOS,10,11,12,13,PAD],[BOS,10,11,12,13,14]])
+        tgt_in_correct_3 = torch.tensor([[BOS,10,11,12,13,14,15]])
+        tgt_out_correct_1 = torch.tensor([[10,11,12,EOS,PAD],[10,11,12,13,EOS]])
+        tgt_out_correct_2 = torch.tensor([[10,11,12,13,EOS,PAD],[10,11,12,13,14,EOS]])
+        tgt_out_correct_3 = torch.tensor([[10,11,12,13,14,15,EOS]])
 
         actual = ds.make_batches(src_sents, tgt_sents, 8)
 
@@ -94,15 +93,15 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
         BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
         EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
-        src_correct_1 = F.one_hot(torch.tensor([[5,6,EOS,PAD,PAD,PAD],[5,6,7,8,9,EOS]]),16)
-        src_correct_2 = F.one_hot(torch.tensor([[5,6,8,9,EOS],[5,6,7,8,EOS]]),16)
-        src_correct_3 = F.one_hot(torch.tensor([[5,6,7,EOS]]),16)
-        tgt_in_correct_1 = F.one_hot(torch.tensor([[BOS,10,11,12,PAD],[BOS,10,11,12,13]]),16)
-        tgt_in_correct_2 = F.one_hot(torch.tensor([[BOS,10,11,12,13,PAD],[BOS,10,11,12,13,14]]),16)
-        tgt_in_correct_3 = F.one_hot(torch.tensor([[BOS,10,11,12,13,14,15]]),16)
-        tgt_out_correct_1 = F.one_hot(torch.tensor([[10,11,12,EOS,PAD],[10,11,12,13,EOS]]),16)
-        tgt_out_correct_2 = F.one_hot(torch.tensor([[10,11,12,13,EOS,PAD],[10,11,12,13,14,EOS]]),16)
-        tgt_out_correct_3 = F.one_hot(torch.tensor([[10,11,12,13,14,15,EOS]]),16)
+        src_correct_1 = torch.tensor([[5,6,EOS,PAD,PAD,PAD],[5,6,7,8,9,EOS]])
+        src_correct_2 = torch.tensor([[5,6,8,9,EOS],[5,6,7,8,EOS]])
+        src_correct_3 = torch.tensor([[5,6,7,EOS]])
+        tgt_in_correct_1 = torch.tensor([[BOS,10,11,12,PAD],[BOS,10,11,12,13]])
+        tgt_in_correct_2 = torch.tensor([[BOS,10,11,12,13,PAD],[BOS,10,11,12,13,14]])
+        tgt_in_correct_3 = torch.tensor([[BOS,10,11,12,13,14,15]])
+        tgt_out_correct_1 = torch.tensor([[10,11,12,EOS,PAD],[10,11,12,13,EOS]])
+        tgt_out_correct_2 = torch.tensor([[10,11,12,13,EOS,PAD],[10,11,12,13,14,EOS]])
+        tgt_out_correct_3 = torch.tensor([[10,11,12,13,14,15,EOS]])
 
         actual = ds.batches
 

@@ -1,6 +1,5 @@
 # TODO(darcey): figure out if I need to do all the to_device stuff here
 # TODO(darcey): figure out if I need to include dtype information here
-# TODO(darcey): add dropout
 # TODO(darcey): look into methods of initializing the parameters (see Toan's paper)
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
 # TODO(darcey): once Vocab class is implemented, have the default target mask mask out stuff like BOS and PAD (possibly here, possibly in some other file)
@@ -13,8 +12,8 @@ from configuration import *
 
 
 
-def get_embedding(config, vocab_size):
-    return Embedding(vocab_size, config.d_model, config.fix_norm)
+def get_embedding(config_arch, vocab_size):
+    return Embedding(vocab_size, config_arch.d_model, config_arch.fix_norm)
 
 class Embedding(torch.nn.Module):
 
@@ -45,12 +44,12 @@ class Embedding(torch.nn.Module):
 
 
 
-def get_positional_encoding(config):
-    match config.pos_enc_type:
+def get_positional_encoding(config_arch):
+    match config_arch.pos_enc_type:
         case PositionalEncodingType.NONE:
             return NullPositionalEncoding()
         case PositionalEncodingType.SINUSOIDAL:
-            return SinusoidalPositionalEncoding(config.context_window_length, config.d_model)
+            return SinusoidalPositionalEncoding(config_arch.context_window_length, config_arch.d_model)
 
 class NullPositionalEncoding(torch.nn.Module):
 
@@ -84,12 +83,12 @@ class SinusoidalPositionalEncoding(torch.nn.Module):
 
 
 
-def get_normalization(config):
-    match config.norm_type:
+def get_normalization(config_arch):
+    match config_arch.norm_type:
         case NormType.NONE:
             return torch.nn.Identity()
         case NormType.LAYER_NORM:
-            return LayerNorm(config.d_model, config.layer_norm_epsilon)
+            return LayerNorm(config_arch.d_model, config_arch.layer_norm_epsilon)
         case NormType.SCALE_NORM:
             return ScaleNorm()
 
@@ -123,32 +122,34 @@ class ScaleNorm(torch.nn.Module):
 
 
 
-def get_feed_forward(config):
-    return FeedForward(config.d_model, config.d_ff)
+def get_feed_forward(config_arch, config_train):
+    return FeedForward(config_arch.d_model, config_arch.d_ff, config_train.ff_dropout)
 
 class FeedForward(torch.nn.Module):
 
-    def __init__(self, input_dim, hidden_dim):
+    def __init__(self, input_dim, hidden_dim, dropout):
         super().__init__()
-        self.layer1 = torch.nn.Linear(input_dim, hidden_dim, bias=True)
-        self.layer2 = torch.nn.Linear(hidden_dim, input_dim, bias=True)
+        self.layer1  = torch.nn.Linear(input_dim, hidden_dim, bias=True)
+        self.layer2  = torch.nn.Linear(hidden_dim, input_dim, bias=True)
+        self.dropout = torch.nn.Dropout(p=dropout)
 
     # x:   [batch, seq, d_model]
     # ret: [batch, seq, d_model]
     def forward(self, x):
         x = self.layer1(x)
         x = torch.nn.functional.relu(x)
+        x = self.dropout(x)
         x = self.layer2(x)
         return x
 
 
 
-def get_attention(config):
-    return MultiHeadAttention(config.d_model, config.num_attention_heads)
+def get_attention(config_arch, config_train):
+    return MultiHeadAttention(config_arch.d_model, config_arch.num_attention_heads, dropout=config_train.att_dropout)
 
 class MultiHeadAttention(torch.nn.Module):
 
-    def __init__(self, input_dim, num_heads, qk_dim=None, v_dim=None):
+    def __init__(self, input_dim, num_heads, qk_dim=None, v_dim=None, dropout=0.3):
         super().__init__()
 
         if qk_dim == None or v_dim == None:
@@ -163,6 +164,8 @@ class MultiHeadAttention(torch.nn.Module):
         self.proj_k   = torch.nn.Linear(input_dim, num_heads*self.qk_dim, bias=False)
         self.proj_v   = torch.nn.Linear(input_dim, num_heads*self.v_dim, bias=False)
         self.proj_out = torch.nn.Linear(num_heads*self.v_dim, input_dim, bias=False)
+
+        self.dropout = torch.nn.Dropout(p=dropout)
 
     # q:    [batch, seq1, d_input]
     # k:    [batch, seq2, d_input]
@@ -189,6 +192,7 @@ class MultiHeadAttention(torch.nn.Module):
         if mask is not None:
             key_queries += mask
         probs = torch.softmax(key_queries, dim=-1)
+        probs = self.dropout(probs)
         ret = torch.matmul(probs, v)
 
         # reshape back
@@ -203,13 +207,14 @@ class MultiHeadAttention(torch.nn.Module):
 
 class SublayerConnection(torch.nn.Module):
 
-    def __init__(self, sublayer_func, sublayer, config):
+    def __init__(self, sublayer_func, sublayer, config_arch, config_train):
         super().__init__()
-        self.use_resid     = config.use_resid_connection
+        self.use_resid     = config_arch.use_resid_connection
 
         # PreNorm is from https://aclanthology.org/2019.iwslt-1.17.pdf
-        self.pre_norm      = config.pre_norm
-        self.norm          = get_normalization(config)
+        self.pre_norm      = config_arch.pre_norm
+        self.norm          = get_normalization(config_arch)
+        self.dropout       = torch.nn.Dropout(p=config_train.dropout)
 
         self.sublayer      = sublayer
         self.sublayer_func = sublayer_func
@@ -222,6 +227,7 @@ class SublayerConnection(torch.nn.Module):
         ret = this_seq
         ret = self.norm(ret) if self.pre_norm else ret
         ret = self.sublayer_func(self.sublayer, ret, *other_inputs)
+        ret = self.dropout(ret)
         ret = ret + this_seq if self.use_resid else ret
         ret = self.norm(ret) if not self.pre_norm else ret
         return ret
@@ -230,24 +236,24 @@ class SublayerConnection(torch.nn.Module):
 
 class Layer(torch.nn.Module):
 
-    def __init__(self, config, take_two_seqs, use_mask):
+    def __init__(self, config_arch, config_train, take_two_seqs, use_mask):
         super().__init__()
-        self.use_resid     = config.use_resid_connection
+        self.use_resid     = config_arch.use_resid_connection
         self.use_mask      = use_mask
         self.take_two_seqs = take_two_seqs
 
-        self_attention         = get_attention(config)
+        self_attention         = get_attention(config_arch, config_train)
         self_att_func          = lambda s, y, m: s(y, y, y, m)
-        self.self_att_sublayer = SublayerConnection(self_att_func, self_attention, config)
+        self.self_att_sublayer = SublayerConnection(self_att_func, self_attention, config_arch, config_train)
 
         if take_two_seqs:
-            cross_attention         = get_attention(config)
+            cross_attention         = get_attention(config_arch, config_train)
             cross_att_func          = lambda s, y, x: s(y, x, x)
-            self.cross_att_sublayer = SublayerConnection(cross_att_func, cross_attention, config)
+            self.cross_att_sublayer = SublayerConnection(cross_att_func, cross_attention, config_arch, config_train)
 
-        feed_forward      = get_feed_forward(config)
+        feed_forward      = get_feed_forward(config_arch, config_train)
         feed_forward_func = lambda s, y: s(y)
-        self.ff_sublayer  = SublayerConnection(feed_forward_func, feed_forward, config)
+        self.ff_sublayer  = SublayerConnection(feed_forward_func, feed_forward, config_arch, config_train)
 
     # prev_seq: [batch, prev_seq, d_model]
     # this_seq: [batch, this_seq, d_model]
@@ -273,13 +279,13 @@ class Layer(torch.nn.Module):
 #   ???:           takes two sequences,  no masked self-attention
 class EncoderOrDecoder(torch.nn.Module):
 
-    def __init__(self, config, num_layers, take_two_seqs, use_mask):
+    def __init__(self, config_arch, config_train, num_layers, take_two_seqs, use_mask):
         super().__init__()
         self.use_mask      = use_mask
-        self.pre_norm      = config.pre_norm
+        self.pre_norm      = config_arch.pre_norm
         if self.pre_norm:
-            self.norm      = get_normalization(config)
-        self.layers        = torch.nn.ModuleList([Layer(config, take_two_seqs, use_mask) for _ in range(num_layers)])
+            self.norm      = get_normalization(config_arch)
+        self.layers        = torch.nn.ModuleList([Layer(config_arch, config_train, take_two_seqs, use_mask) for _ in range(num_layers)])
 
     # prev_seq: [batch, prev_seq, d_model]
     # this_seq: [batch, this_seq, d_model]
@@ -305,51 +311,51 @@ class EncoderOrDecoder(torch.nn.Module):
 # The logic in get_transformer configures these two basic templates
 # into the three standard EncoderDecoder, EncoderOnly, and DecoderOnly
 # models, as well as custom options.
-def get_transformer(config, vocab_size, tgt_vocab_mask=None):
-    match config.transformer_type:
+def get_transformer(config_arch, config_train, vocab_size, tgt_vocab_mask=None):
+    match config_arch.transformer_type:
         case TransformerType.ENCODER_DECODER:
-            return TransformerTwoSeq(config,
-                                     num_enc_layers=config.num_encoder_layers,
+            return TransformerTwoSeq(config_arch, config_train,
+                                     num_enc_layers=config_arch.num_encoder_layers,
                                      use_mask_enc=False,
-                                     num_dec_layers=config.num_decoder_layers,
+                                     num_dec_layers=config_arch.num_decoder_layers,
                                      use_mask_dec=True,
                                      output_probs=True,
                                      vocab_size=vocab_size,
                                      tgt_vocab_mask=tgt_vocab_mask)
         case TransformerType.ENCODER_ONLY:
-            return TransformerOneSeq(config,
-                                     num_layers=config.num_encoder_layers,
+            return TransformerOneSeq(config_arch, config_train,
+                                     num_layers=config_arch.num_encoder_layers,
                                      use_mask=False,
                                      output_probs=False,
                                      vocab_size=vocab_size,
                                      vocab_mask=tgt_vocab_mask)
         case TransformerType.DECODER_ONLY:
-            return TransformerOneSeq(config,
-                                     num_layers=config.num_decoder_layers,
+            return TransformerOneSeq(config_arch, config_train,
+                                     num_layers=config_arch.num_decoder_layers,
                                      use_mask=True,
                                      output_probs=True,
                                      vocab_size=vocab_size,
                                      vocab_mask=tgt_vocab_mask)
         case TransformerType.CUSTOM_TWO_SEQ:
-            return TransformerTwoSeq(config,
-                                     num_enc_layers=config.num_encoder_layers,
-                                     use_mask_enc=config.use_masked_att_encoder,
-                                     num_dec_layers=config.num_decoder_layers,
-                                     use_mask_dec=config.use_masked_att_decoder,
-                                     output_probs=config.output_probs,
+            return TransformerTwoSeq(config_arch, config_train,
+                                     num_enc_layers=config_arch.num_encoder_layers,
+                                     use_mask_enc=config_arch.use_masked_att_encoder,
+                                     num_dec_layers=config_arch.num_decoder_layers,
+                                     use_mask_dec=config_arch.use_masked_att_decoder,
+                                     output_probs=config_arch.output_probs,
                                      vocab_size=vocab_size,
                                      tgt_vocab_mask=tgt_vocab_mask)
         case TransformerType.CUSTOM_ONE_SEQ:
-            return TransformerOneSeq(config,
-                                     num_layers=config.num_decoder_layers,
-                                     use_mask=config.use_masked_att_decoder,
-                                     output_probs=config.output_probs,
+            return TransformerOneSeq(config_arch, config_train,
+                                     num_layers=config_arch.num_decoder_layers,
+                                     use_mask=config_arch.use_masked_att_decoder,
+                                     output_probs=config_arch.output_probs,
                                      vocab_size=vocab_size,
                                      vocab_mask=tgt_vocab_mask)
 
 class TransformerTwoSeq(torch.nn.Module):
 
-    def __init__(self, config, num_enc_layers, use_mask_enc, num_dec_layers, use_mask_dec, output_probs, vocab_size, tgt_vocab_mask=None):
+    def __init__(self, config_arch, config_train, num_enc_layers, use_mask_enc, num_dec_layers, use_mask_dec, output_probs, vocab_size, tgt_vocab_mask=None):
         super().__init__()
         self.output_probs = output_probs
         if self.output_probs:
@@ -357,13 +363,14 @@ class TransformerTwoSeq(torch.nn.Module):
                 tgt_vocab_mask = torch.tensor([True]*vocab_size)
             self.tgt_vocab_mask = tgt_vocab_mask
 
-        self.embedding  = get_embedding(config, vocab_size)
-        self.positional = get_positional_encoding(config)
-        self.encoder    = EncoderOrDecoder(config,
+        self.embedding  = get_embedding(config_arch, vocab_size)
+        self.positional = get_positional_encoding(config_arch)
+        self.dropout    = torch.nn.Dropout(p=config_train.dropout)
+        self.encoder    = EncoderOrDecoder(config_arch, config_train,
                                            num_layers=num_enc_layers,
                                            take_two_seqs=False,
                                            use_mask=use_mask_enc)
-        self.decoder    = EncoderOrDecoder(config,
+        self.decoder    = EncoderOrDecoder(config_arch, config_train,
                                            num_layers=num_dec_layers,
                                            take_two_seqs=True,
                                            use_mask=use_mask_dec)
@@ -374,11 +381,13 @@ class TransformerTwoSeq(torch.nn.Module):
     def forward(self, src, tgt):
         src_embed  = self.embedding(src)
         src_embed += self.positional(src)
-        src_output = self.encoder(src_embed)
+        src_input  = self.dropout(src_embed)
+        src_output = self.encoder(src_input)
 
         tgt_embed  = self.embedding(tgt)
         tgt_embed += self.positional(tgt)
-        tgt_output = self.decoder(tgt_embed, src_output)
+        tgt_input  = self.dropout(tgt_embed)
+        tgt_output = self.decoder(tgt_input, src_output)
         if not self.output_probs:
             return tgt_output
         else:
@@ -388,7 +397,7 @@ class TransformerTwoSeq(torch.nn.Module):
 
 class TransformerOneSeq(torch.nn.Module):
 
-    def __init__(self, config, num_layers, use_mask, output_probs, vocab_size, vocab_mask=None):
+    def __init__(self, config_arch, config_train, num_layers, use_mask, output_probs, vocab_size, vocab_mask=None):
         super().__init__()
         self.output_probs = output_probs
         if self.output_probs:
@@ -396,19 +405,21 @@ class TransformerOneSeq(torch.nn.Module):
                 vocab_mask = torch.tensor([True]*vocab_size)
             self.vocab_mask = vocab_mask
 
-        self.embedding    = get_embedding(config, vocab_size)
-        self.positional   = get_positional_encoding(config)
-        self.xxcoder      = EncoderOrDecoder(config,
-                                             num_layers=num_layers,
-                                             take_two_seqs=False,
-                                             use_mask=use_mask)
+        self.embedding  = get_embedding(config_arch, vocab_size)
+        self.positional = get_positional_encoding(config_arch)
+        self.dropout    = torch.nn.Dropout(p=config_train.dropout)
+        self.xxcoder    = EncoderOrDecoder(config_arch, config_train,
+                                           num_layers=num_layers,
+                                           take_two_seqs=False,
+                                           use_mask=use_mask)
 
     # seq: [batch, seq, vocab_size]
     # ret: [batch, seq, vocab_size]
     def forward(self, seq):
         seq_embed  = self.embedding(seq)
         seq_embed += self.positional(seq)
-        seq_output = self.xxcoder(seq_embed)
+        seq_input  = self.dropout(seq_embed)
+        seq_output = self.xxcoder(seq_input)
         if not self.output_probs:
             return seq_output
         else:

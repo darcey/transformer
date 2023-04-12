@@ -2,8 +2,9 @@ import torch
 import torch.testing
 import unittest
 import copy
-from trainer import *
+from configuration import *
 from vocabulary import *
+from trainer import *
 
 
 
@@ -12,9 +13,10 @@ class TestLoss(unittest.TestCase):
     def setUp(self):
         self.model = torch.nn.Linear(10,10)
         self.vocab = Vocabulary([],[])
+        self.config = get_config_train()
 
     def testShape(self):
-        trainer = Trainer(self.model, self.vocab)
+        trainer = Trainer(self.model, self.vocab, self.config)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -25,7 +27,7 @@ class TestLoss(unittest.TestCase):
 
     # no label smoothing, no PAD, perfect predictions
     def testPerfectPrediction(self):
-        trainer = Trainer(self.model, self.vocab)
+        trainer = Trainer(self.model, self.vocab, self.config)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -41,7 +43,7 @@ class TestLoss(unittest.TestCase):
 
     # no label smoothing, no PAD, random predictions
     def testNoLabelSmoothing(self):
-        trainer = Trainer(self.model, self.vocab)
+        trainer = Trainer(self.model, self.vocab, self.config)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -53,7 +55,7 @@ class TestLoss(unittest.TestCase):
 
     # no label smoothing, PAD
     def testNoLabelSmoothingPad(self):
-        trainer = Trainer(self.model, self.vocab)
+        trainer = Trainer(self.model, self.vocab, self.config)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -66,7 +68,7 @@ class TestLoss(unittest.TestCase):
 
     # maximum label smoothing, no PAD, no label smoothing mask
     def testMaxLabelSmoothing(self):
-        trainer = Trainer(self.model, self.vocab)
+        trainer = Trainer(self.model, self.vocab, self.config)
         trainer.label_smoothing = 1
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -79,7 +81,7 @@ class TestLoss(unittest.TestCase):
 
     # maximum label smoothing, no PAD, label smoothing mask
     def testMaxLabelSmoothingMask(self):
-        trainer = Trainer(self.model, self.vocab)
+        trainer = Trainer(self.model, self.vocab, self.config)
         trainer.label_smoothing = 1
         trainer.label_smoothing_counts = torch.tensor([0.0, 0.0, 0.5, 0.5])
 
@@ -92,7 +94,7 @@ class TestLoss(unittest.TestCase):
     
     # normal loss and label smoothing, no PAD, no mask
     def testInterpolation(self):
-        trainer = Trainer(self.model, self.vocab)
+        trainer = Trainer(self.model, self.vocab, self.config)
         trainer.label_smoothing = 0.5
         trainer.label_smoothing_counts = torch.ones(4)/4.0
 
@@ -105,9 +107,32 @@ class TestLoss(unittest.TestCase):
 
 
 
+class TestWordDropout(unittest.TestCase):
+
+    def setUp(self):
+        self.config = get_config_train()
+        self.vocab = Vocabulary([],[])
+        l = len(self.vocab)
+        self.model = torch.nn.Linear(l, l)
+        self.trainer = Trainer(self.model, self.vocab, self.config)
+
+    def testWordDropoutNoUnk(self):
+        input_tensor = torch.rand(20,10)
+        actual_tensor = self.trainer.word_dropout(input_tensor, 0.0)
+        self.assertTrue(torch.equal(actual_tensor, input_tensor))
+
+    def testWordDropoutAllUnk(self):
+        input_tensor = torch.rand(20,10)
+        correct_tensor = torch.full((20,10), self.vocab.tok_to_idx(SpecialTokens.UNK))
+        actual_tensor = self.trainer.word_dropout(input_tensor, 1.0)
+        self.assertTrue(torch.equal(actual_tensor, correct_tensor))
+
+
+
 class TestTrainOneStep(unittest.TestCase):
 
     def testParamsUpdate(self):
+        config = get_config_train()
         vocab = Vocabulary([],[])
         l = len(vocab)
 
@@ -126,7 +151,7 @@ class TestTrainOneStep(unittest.TestCase):
         inputs2 = torch.rand(2,5,l)
         targets = torch.rand(2,5,l)
 
-        trainer = Trainer(model, vocab)
+        trainer = Trainer(model, vocab, config)
         trainer.train_one_step(inputs1, inputs2, targets)
 
         old_params = {name:param for name, param in model_old.named_parameters()}

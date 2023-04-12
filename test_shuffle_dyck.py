@@ -10,6 +10,7 @@ class TestShuffleDyckHardCoded(unittest.TestCase):
 
     def setUp(self):
         self.sdr = ShuffleDyckRecognizer(3)
+        self.sdr.transformer.eval()
 
     def construct_input(self, seq):
         return torch.nn.functional.one_hot(seq, num_classes=6).float().unsqueeze(0)

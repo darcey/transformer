@@ -1,9 +1,7 @@
-# TODO(darcey): look at original Vaswani et al. paper
 # TODO(darcey): finish reading Toan's paper for additional insights
-# TODO(darcey): word dropout? either here or in the transformer file
-# TODO(darcey): make a learning config, add label smoothing settings to it (allow option to include EOS in label smoothing mask); also decide what else to exclude from the label smoothing mask (BOS, EOS, etc.); probably the best way to do this is to have the Vocabulary class include functions like do_not_generate and do_not_smooth; I would like this file to be as agnostic as possible about what special tokens the vocabulary contains. I don't know how I can write the loss function without awareness of the PAD token, though, and it seems task agnostic, so I am allowing this file to know about that.
+# TODO(darcey): add the label smoothing settings / label smoothing masking to train_config
+# TODO(darcey): standardize which argument the config file is in the __init__ function across files in this project
 # TODO(darcey): improve torch efficiency throughout codebase (switch from reshape to view? bmm vs. matmul? stop using one-hots where possible?)
-# TODO(darcey): make a learning config, add label smoothing settings to it (allow option to include e.g. EOS in label smoothing mask)
 # TODO(darcey): implement classifier learning also
 
 import torch
@@ -11,13 +9,13 @@ from vocabulary import SpecialTokens
 
 class Trainer():
 
-    def __init__(self, model, vocab):
+    def __init__(self, model, vocab, config_train):
         self.vocab = vocab
         self.model = model
         self.optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
-        self.max_epochs = 5
-        self.epoch_size = 20
+        self.max_epochs = config_train.max_epochs
+        self.epoch_size = config_train.epoch_size
         self.num_epochs = 0
         self.num_steps = 0
         self.num_toks = 0
@@ -30,13 +28,35 @@ class Trainer():
         ls_counts = ls_counts / torch.sum(ls_counts)
         self.label_smoothing_counts = ls_counts
 
+        self.word_dropout_prob = config_train.word_dropout
+
         return
 
     def train(self, train, dev):
         for epoch in range(self.max_epochs):
             for step in range(self.epoch_size):
-                batch = train.get_batch(batch["src"], batch["tgt_in"], batch["tgt_out"])
+                # get the batch
+                batch = train.get_batch()
+                src = batch["src"]
+                tgt_in = batch["tgt_in"]
+                tgt_out = batch["tgt_out"]
+
+                # word dropout
+                src = self.word_dropout(src, self.word_dropout_prob)
+                tgt_in = self.word_dropout(tgt_in, self.word_dropout_prob)
+
+                # convert to one-hots
+                vocab_size = len(self.vocab)
+                src = torch.nn.functional.one_hot(src, vocab_size)
+                tgt_in = torch.nn.functional.one_hot(tgt_in, vocab_size)
+                tgt_out = torch.nn.functional.one_hot(tgt_out, vocab_size)
+
+                # do one step of training
+                self.train_one_step(src, tgt_in, tgt_out)
+
                 # compute train perplexity?
+
+                # update training statistics
                 self.num_steps += 1
                 self.num_toks += batch["num_tgt_toks"]
             # evaluate dev perplexity
@@ -76,3 +96,11 @@ class Trainer():
         loss = actual_smoothed * predicted
         loss = torch.sum(loss) / num_toks        
         return loss
+
+    # data: [batch, seq]
+    def word_dropout(self, data, dropout):
+        unk_idx = self.vocab.tok_to_idx(SpecialTokens.UNK)
+        unk_tensor = torch.full_like(data, unk_idx)
+        prob = torch.full_like(data, dropout)
+        unk_mask = torch.bernoulli(prob)
+        return data * (1 - unk_mask) + unk_tensor * unk_mask

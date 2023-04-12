@@ -16,19 +16,20 @@ class ShuffleDyckRecognizer():
         # vocab is [0, ..., [k-1, ]0, ..., ]k-1
         vocab_size = 2*k
 
-        config = get_config_arch()
-        config.transformer_type = TransformerType.CUSTOM_ONE_SEQ
-        config.output_probs = False
-        config.use_masked_att_decoder = True
-        config.num_decoder_layers = 1
-        config.num_attention_heads = 1
-        config.d_model = 2*k
-        config.d_ff = 2*k
-        config.use_resid_connection = False
-        config.pos_enc_type = PositionalEncodingType.NONE
-        config.norm_type = NormType.NONE
+        config_arch = get_config_arch()
+        config_arch.transformer_type = TransformerType.CUSTOM_ONE_SEQ
+        config_arch.output_probs = False
+        config_arch.use_masked_att_decoder = True
+        config_arch.num_decoder_layers = 1
+        config_arch.num_attention_heads = 1
+        config_arch.d_model = 2*k
+        config_arch.d_ff = 2*k
+        config_arch.use_resid_connection = False
+        config_arch.pos_enc_type = PositionalEncodingType.NONE
+        config_arch.norm_type = NormType.NONE
+        config_train = get_config_train()
 
-        t = transformer.get_transformer(config, vocab_size)
+        t = transformer.get_transformer(config_arch, config_train, vocab_size)
 
         emb = torch.zeros(2*k, 2*k)
         for j in range(k):

@@ -64,11 +64,10 @@ class Seq2SeqTrainDataset():
         num_src_toks = torch.sum(src_tensor != pad_idx)
         num_tgt_toks = torch.sum(tgt_in_tensor != pad_idx)
 
-        vocab_size = len(self.vocab)
         return {
-            "src": torch.nn.functional.one_hot(src_tensor, vocab_size),
-            "tgt_in": torch.nn.functional.one_hot(tgt_in_tensor, vocab_size),
-            "tgt_out": torch.nn.functional.one_hot(tgt_out_tensor, vocab_size),
+            "src": src_tensor,
+            "tgt_in": tgt_in_tensor,
+            "tgt_out": tgt_out_tensor,
             "num_src_toks": num_src_toks,
             "num_tgt_toks": num_tgt_toks,
         }
