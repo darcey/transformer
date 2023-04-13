@@ -12,7 +12,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testSortByTgtLen(self):
         src = [[1,2,3,4],[1,2,3,4,5],[1,2],[1,2,3]]
         tgt = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15]]
-        ds = Seq2SeqTrainDataset(src, tgt, 100, self.vocab)
+        ds = Seq2SeqTrainDataset(src, tgt, self.vocab, 100)
         
         sorted_src_correct = [[1,2],[1,2,3,4,5],[1,2,3,4],[1,2,3]]
         sorted_tgt_correct = [[10,11,12],[10,11,12,13],[10,11,12,13,14],[10,11,12,13,14,15]]
@@ -24,7 +24,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7]]
         tgt_sents = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15]]
         sent_list = list(zip(src_sents, tgt_sents))
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 100, self.vocab)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, 100)
         
         PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
         BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
@@ -51,7 +51,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testMakeBatches(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7,8,9],[5,6,7,8],[5,6,7]]
         tgt_sents = [[10,11,12],[10,11,12,13],[10,11,12,13],[10,11,12,13,14],[10,11,12,13,14,15]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 8, self.vocab)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, 8)
 
         PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
         BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
@@ -88,7 +88,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testInit(self):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,8,9]]
         tgt_sents = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15],[10,11,12,13]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 8, self.vocab)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, 8)
         
         PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
         BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
@@ -125,7 +125,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testIter(self):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,8,9]]
         tgt_sents = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15],[10,11,12,13]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, 8, self.vocab)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, 8)
         ds.batches = [1, 2, 3, 4]
         
         # test one iteration

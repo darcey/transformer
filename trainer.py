@@ -1,5 +1,4 @@
 # TODO(darcey): finish reading Toan's paper for additional insights
-# TODO(darcey): add the label smoothing settings / label smoothing masking to train_config
 # TODO(darcey): standardize which argument the config file is in the __init__ function across files in this project
 # TODO(darcey): improve torch efficiency throughout codebase (switch from reshape to view? bmm vs. matmul? stop using one-hots where possible?)
 # TODO(darcey): implement classifier learning also
@@ -20,12 +19,13 @@ class Trainer():
         self.num_steps = 0
         self.num_toks = 0
 
-        # TODO(darcey): fix this (see TODO note above)
-        self.label_smoothing = 0.1
-        ls_counts = torch.tensor([1.0]*len(self.vocab))
-        pad_idx = self.vocab.tok_to_idx(SpecialTokens.PAD)
-        ls_counts[pad_idx] = 0
-        ls_counts = ls_counts / torch.sum(ls_counts)
+        self.label_smoothing = config_train.label_smoothing
+        ls_mask = vocab.get_tgt_output_mask(bool_mask=False)
+        if not config_train.label_smooth_eos:
+            ls_mask[vocab.tok_to_idx(SpecialTokens.EOS)] = 0.0
+        if not config_train.label_smooth_unk:
+            ls_mask[vocab.tok_to_idx(SpecialTokens.UNK)] = 0.0
+        ls_counts = ls_mask / torch.sum(ls_mask)
         self.label_smoothing_counts = ls_counts
 
         self.word_dropout_prob = config_train.word_dropout

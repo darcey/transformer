@@ -74,13 +74,19 @@ def get_config_train():
     config_train = dict()
 
     # Length of training
-    config_train["max_epochs"]   = 200
-    config_train["epoch_size"]   = 1000
+    config_train["max_epochs"]       = 200
+    config_train["epoch_size"]       = 1000
+    config_train["batch_size"]       = 4096
 
     # Dropout options
-    config_train["dropout"]      = 0.3
-    config_train["att_dropout"]  = 0.3
-    config_train["ff_dropout"]   = 0.3
-    config_train["word_dropout"] = 0.1
+    config_train["dropout"]          = 0.3
+    config_train["att_dropout"]      = 0.3
+    config_train["ff_dropout"]       = 0.3
+    config_train["word_dropout"]     = 0.1
+
+    # Label smoothing
+    config_train["label_smoothing"]  = 0.1
+    config_train["label_smooth_eos"] = True
+    config_train["label_smooth_unk"] = True
 
     return Namespace(**config_train)

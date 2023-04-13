@@ -12,7 +12,7 @@ class Seq2SeqTrainDataset():
 
     # assumes src, tgt are lists of lists of token indices
     # sorts by tgt length because that determines number of training steps
-    def __init__(self, src, tgt, batch_size, vocab):
+    def __init__(self, src, tgt, vocab, batch_size):
         self.vocab = vocab
         sorted_src, sorted_tgt = self.sort_by_tgt_len(src, tgt)
         self.batches = self.make_batches(sorted_src, sorted_tgt, batch_size)

@@ -17,8 +17,6 @@ class TestLoss(unittest.TestCase):
 
     def testShape(self):
         trainer = Trainer(self.model, self.vocab, self.config)
-        trainer.label_smoothing = 0
-        trainer.label_smoothing_counts = torch.ones(4)/4.0
 
         predicted = torch.rand(2, 3, 4)
         actual    = torch.rand(2, 3, 4)
@@ -129,6 +127,45 @@ class TestWordDropout(unittest.TestCase):
 
 
 
+class MockModel(torch.nn.Module):
+
+    def __init__(self, l):
+        super().__init__()
+        self.lin1 = torch.nn.Linear(l,l)
+        self.lin2 = torch.nn.Linear(l,l)
+
+    def forward(self, in1, in2):
+        return self.lin1(in1) + self.lin2(in2)
+
+
+
+class TestInit(unittest.TestCase):
+
+    def testLabelSmoothingMask(self):
+        fake_src = [["the", "dog", "walked", "to", "the", "park"]]
+        fake_tgt = [["the", "ogday", "alkedway", "to", "the", "arkpay"]]
+        vocab = Vocabulary(fake_src, fake_tgt)
+        model = MockModel(len(vocab))
+        config = get_config_train()
+
+        config.label_smooth_eos = True
+        config.label_smooth_unk = True
+        trainer = Trainer(model, vocab, config)
+        ls_counts = trainer.label_smoothing_counts
+        self.assertEqual(ls_counts[vocab.tok_to_idx("the")], 1.0/7.0)
+        self.assertEqual(ls_counts[vocab.tok_to_idx(SpecialTokens.EOS)], 1.0/7.0)
+        self.assertEqual(ls_counts[vocab.tok_to_idx(SpecialTokens.UNK)], 1.0/7.0)
+
+        config.label_smooth_eos = False
+        config.label_smooth_unk = False
+        trainer = Trainer(model, vocab, config)
+        ls_counts = trainer.label_smoothing_counts
+        self.assertEqual(ls_counts[vocab.tok_to_idx("the")], 1.0/5.0)
+        self.assertEqual(ls_counts[vocab.tok_to_idx(SpecialTokens.EOS)], 0.0)
+        self.assertEqual(ls_counts[vocab.tok_to_idx(SpecialTokens.UNK)], 0.0)
+
+
+
 class TestTrainOneStep(unittest.TestCase):
 
     def testParamsUpdate(self):
@@ -136,16 +173,7 @@ class TestTrainOneStep(unittest.TestCase):
         vocab = Vocabulary([],[])
         l = len(vocab)
 
-        class FakeModelClass(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.lin1 = torch.nn.Linear(l,l)
-                self.lin2 = torch.nn.Linear(l,l)
-            def forward(self, in1, in2):
-                return self.lin1(in1) + self.lin2(in2)
-
-        model = FakeModelClass()
-        model.label_smoothing = 0.0
+        model = MockModel(l)
         model_old = copy.deepcopy(model)
         inputs1 = torch.rand(2,5,l)
         inputs2 = torch.rand(2,5,l)

@@ -63,3 +63,20 @@ class TestVocabulary(unittest.TestCase):
         tgt_correct = ["the", "ogday", "awsay", unk, "ockray", "in", "the", unk]
         tgt_actual = vocab.unk_tgt(tgt_sent)
         self.assertEqual(tgt_actual, tgt_correct)
+
+    def testTgtOutputMask(self):
+        vocab = Vocabulary(self.fake_src, self.fake_tgt)
+
+        tgt_output_mask = vocab.get_tgt_output_mask()
+        self.assertTrue(tgt_output_mask[vocab.tok_to_idx("the")])
+        self.assertFalse(tgt_output_mask[vocab.tok_to_idx("dog")])
+        self.assertTrue(tgt_output_mask[vocab.tok_to_idx("ogday")])
+        self.assertFalse(tgt_output_mask[vocab.tok_to_idx(SpecialTokens.BOS)])
+        self.assertTrue(tgt_output_mask[vocab.tok_to_idx(SpecialTokens.EOS)])
+
+        tgt_output_mask = vocab.get_tgt_output_mask(bool_mask=False)
+        self.assertEqual(tgt_output_mask[vocab.tok_to_idx("the")], 1.0)
+        self.assertEqual(tgt_output_mask[vocab.tok_to_idx("dog")], 0.0)
+        self.assertEqual(tgt_output_mask[vocab.tok_to_idx("ogday")], 1.0)
+        self.assertEqual(tgt_output_mask[vocab.tok_to_idx(SpecialTokens.BOS)], 0.0)
+        self.assertEqual(tgt_output_mask[vocab.tok_to_idx(SpecialTokens.EOS)], 1.0)
