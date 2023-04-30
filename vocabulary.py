@@ -1,7 +1,9 @@
+# TODO(darcey): add functionality for reading/writing to a file
+
 # TODO(darcey): might be good to have a way to add data one sentence at a time instead of all at once, but, not important right now
+# TODO(darcey): would also be nice, esp. for testing purposes, to just be able to add vocab tokens directly
 # TODO(darcey): gracefully handle the appearance of the special token symbols in the data instead of just crashing
 # TODO(darcey): code currently assumes that it's a seq2seq task (includes tokens BOS and EOS but not CLS); make an option for which type of task it is
-# TODO(darcey): add functionality for reading/writing to a file
 
 from enum import Enum
 from collections import Counter

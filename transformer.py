@@ -1,8 +1,8 @@
 # TODO(darcey): figure out if I need to do all the to_device stuff here
 # TODO(darcey): figure out if I need to include dtype information here
+
 # TODO(darcey): look into methods of initializing the parameters (see Toan's paper)
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
-# TODO(darcey): once Vocab class is implemented, have the default target mask mask out stuff like BOS and PAD (possibly here, possibly in some other file)
 # TODO(darcey): maybe switch the input to just be indices and not one-hots to save memory?
 # TODO(darcey): consider switching to Brian's clever strategy for src/tgt masking
 

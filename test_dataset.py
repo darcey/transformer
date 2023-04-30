@@ -122,10 +122,10 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         self.assertEqual(actual[2]["num_src_toks"], 4)
         self.assertEqual(actual[2]["num_tgt_toks"], 7)
 
-    def testIter(self):
+    def testIterRandomize(self):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,8,9]]
         tgt_sents = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15],[10,11,12,13]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, 8)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, 8, randomize=True)
         ds.batches = [1, 2, 3, 4]
         
         # test one iteration

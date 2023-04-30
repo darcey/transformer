@@ -1,4 +1,6 @@
 # TODO(darcey): write the seq2seq test dataset code
+
+# TODO(darcey): convert batch from dict to object so it can be worked with more easily
 # TODO(darcey): write dataset classes for classification tasks
 
 import random
@@ -12,12 +14,16 @@ class Seq2SeqTrainDataset():
 
     # assumes src, tgt are lists of lists of token indices
     # sorts by tgt length because that determines number of training steps
-    def __init__(self, src, tgt, vocab, batch_size):
+    def __init__(self, src, tgt, vocab, batch_size, randomize=False):
         self.vocab = vocab
         sorted_src, sorted_tgt = self.sort_by_tgt_len(src, tgt)
         self.batches = self.make_batches(sorted_src, sorted_tgt, batch_size)
+        self.randomize = randomize
         self.num_iters = 0
         self.batch_iter = self.get_batch_iter()
+
+    def __len__(self):
+        return len(self.batches)
 
     def sort_by_tgt_len(self, src, tgt):
         lens = [len(tgt_sent) for tgt_sent in tgt]
@@ -83,7 +89,8 @@ class Seq2SeqTrainDataset():
 
     def get_batch_iter(self):
         order = list(range(len(self.batches)))
-        random.shuffle(order)
+        if self.randomize:
+            random.shuffle(order)
         for i in order:
             yield self.batches[i]
 
