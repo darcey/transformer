@@ -10,7 +10,7 @@ from vocabulary import SpecialTokens
 
 
 
-class Seq2SeqTrainDataset():
+class Seq2SeqTrainDataset:
 
     # assumes src, tgt are lists of lists of token indices
     # sorts by tgt length because that determines number of training steps

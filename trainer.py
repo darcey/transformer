@@ -1,6 +1,8 @@
 # TODO(darcey): finish reading Toan's paper for additional insights
 # TODO(darcey): compute dev BLEU
 
+# TODO(darcey): improve how the support mask is handled, so that the logic around it, and the connection to the label smoothing counts, is less confusing (see tests for loss)
+# TODO(darcey): right now prep_batch is run identically every time we evaluate on the dev data; do it just once for dev data
 # TODO(darcey): consider moving the label smoothing initialization stuff into its own function for modularity
 # TODO(darcey): improve code structure of the functions shared between train and perplexity
 # TODO(darcey): improve torch efficiency throughout codebase (switch from reshape to view? bmm vs. matmul? stop using one-hots where possible?)
@@ -22,8 +24,10 @@ class Trainer():
         self.num_steps = 0
         self.num_toks = 0
 
+        self.support_mask = vocab.get_tgt_output_mask()
+
         self.label_smoothing = config_train.label_smoothing
-        ls_mask = vocab.get_tgt_output_mask(bool_mask=False)
+        ls_mask = vocab.get_tgt_output_mask().type(torch.float)
         if not config_train.label_smooth_eos:
             ls_mask[vocab.tok_to_idx(SpecialTokens.EOS)] = 0.0
         if not config_train.label_smooth_unk:
@@ -51,6 +55,8 @@ class Trainer():
 
             # evaluate dev perplexity
             dev_ppl = self.perplexity(dev)
+            print("DEV PPL: " + str(dev_ppl))
+            print("--------------------------------")
             # TODO(darcey): evaluate dev BLEU
             # save checkpoints as needed
             # adjust learning rate / early stopping
@@ -60,6 +66,7 @@ class Trainer():
         self.optimizer.zero_grad()
         log_probs = self.model(src, tgt_in)
         loss = self.loss(log_probs, tgt_out)
+        print(loss)
         loss.backward()
         self.optimizer.step()
 
@@ -107,8 +114,8 @@ class Trainer():
     def word_dropout(self, data, dropout):
         unk_idx = self.vocab.tok_to_idx(SpecialTokens.UNK)
         unk_tensor = torch.full_like(data, unk_idx)
-        prob = torch.full_like(data, dropout)
-        unk_mask = torch.bernoulli(prob)
+        prob = torch.full_like(data, dropout, dtype=torch.double)
+        unk_mask = torch.bernoulli(prob).type(torch.long)
         return data * (1 - unk_mask) + unk_tensor * unk_mask
 
     # predicted: [batch, tgt_seq, vocab_size] <-- log probs output by model
@@ -138,6 +145,12 @@ class Trainer():
         # [batch*tgt_seq, vocab_size]
         ls = self.label_smoothing if smooth else 0.0
         actual_smoothed = (1 - ls) * actual + ls * self.label_smoothing_counts
+
+        # remove positions not in the support of the model/true distribution
+        # (because they are src vocab words or special tokens that can never
+        #  appear on the target side)
+        predicted = predicted[:, self.support_mask]
+        actual_smoothed = actual_smoothed[:, self.support_mask]
 
         # compute the cross entropy
         cross_ent = actual_smoothed * predicted

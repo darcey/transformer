@@ -1,7 +1,8 @@
 # TODO(darcey): figure out if I need to do all the to_device stuff here
 # TODO(darcey): figure out if I need to include dtype information here
 
-# TODO(darcey): look into methods of initializing the parameters (see Toan's paper)
+# TODO(darcey): look into methods of initializing the parameters (see Toan's paper, section 2.2)
+# TODO(darcey): think about the joint scale norm / fix norm thing from Toan's paper (section 2.3) and see whether it's equivalent to what I'm doing
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
 # TODO(darcey): maybe switch the input to just be indices and not one-hots to save memory?
 # TODO(darcey): consider switching to Brian's clever strategy for src/tgt masking
@@ -360,8 +361,9 @@ class TransformerTwoSeq(torch.nn.Module):
         self.output_probs = output_probs
         if self.output_probs:
             if tgt_vocab_mask == None:
-                tgt_vocab_mask = torch.tensor([True]*vocab_size)
-            self.tgt_vocab_mask = tgt_vocab_mask
+                self.tgt_vocab_mask = torch.tensor([0.0]*vocab_size)
+            else:
+                self.tgt_vocab_mask = torch.log(tgt_vocab_mask.type(torch.float))
 
         self.embedding  = get_embedding(config_arch, vocab_size)
         self.positional = get_positional_encoding(config_arch)
@@ -392,7 +394,8 @@ class TransformerTwoSeq(torch.nn.Module):
             return tgt_output
         else:
             tgt_logits = self.embedding(tgt_output, reverse=True)
-            tgt_probs  = torch.nn.functional.log_softmax(tgt_logits[:,:,self.tgt_vocab_mask], dim=-1)
+            tgt_logits_masked = tgt_logits + self.tgt_vocab_mask
+            tgt_probs = torch.nn.functional.log_softmax(tgt_logits_masked, dim=-1)
             return tgt_probs
 
 class TransformerOneSeq(torch.nn.Module):
@@ -402,8 +405,9 @@ class TransformerOneSeq(torch.nn.Module):
         self.output_probs = output_probs
         if self.output_probs:
             if vocab_mask == None:
-                vocab_mask = torch.tensor([True]*vocab_size)
-            self.vocab_mask = vocab_mask
+                self.vocab_mask = torch.tensor([0.0]*vocab_size)
+            else:
+                self.vocab_mask = torch.log(vocab_mask.type(torch.float))
 
         self.embedding  = get_embedding(config_arch, vocab_size)
         self.positional = get_positional_encoding(config_arch)
@@ -424,5 +428,6 @@ class TransformerOneSeq(torch.nn.Module):
             return seq_output
         else:
             seq_logits = self.embedding(seq_output, reverse=True)
-            seq_probs  = torch.nn.functional.log_softmax(seq_logits[:,:,self.vocab_mask], dim=-1)
+            seq_logits_masked = seq_logits + self.vocab_mask
+            seq_probs = torch.nn.functional.log_softmax(seq_logits_masked, dim=-1)
             return seq_probs

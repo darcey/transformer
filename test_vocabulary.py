@@ -73,10 +73,3 @@ class TestVocabulary(unittest.TestCase):
         self.assertTrue(tgt_output_mask[vocab.tok_to_idx("ogday")])
         self.assertFalse(tgt_output_mask[vocab.tok_to_idx(SpecialTokens.BOS)])
         self.assertTrue(tgt_output_mask[vocab.tok_to_idx(SpecialTokens.EOS)])
-
-        tgt_output_mask = vocab.get_tgt_output_mask(bool_mask=False)
-        self.assertEqual(tgt_output_mask[vocab.tok_to_idx("the")], 1.0)
-        self.assertEqual(tgt_output_mask[vocab.tok_to_idx("dog")], 0.0)
-        self.assertEqual(tgt_output_mask[vocab.tok_to_idx("ogday")], 1.0)
-        self.assertEqual(tgt_output_mask[vocab.tok_to_idx(SpecialTokens.BOS)], 0.0)
-        self.assertEqual(tgt_output_mask[vocab.tok_to_idx(SpecialTokens.EOS)], 1.0)

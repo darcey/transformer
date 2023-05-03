@@ -99,11 +99,8 @@ class Vocabulary():
     def unk_tgt(self, sent):
         return [tok if self.has_tgt_tok(tok) else SpecialTokens.UNK for tok in sent]
 
-    def get_tgt_output_mask(self, bool_mask=True):
+    def get_tgt_output_mask(self):
         tgt_mask = [self.has_tgt_tok(self.idx_to_tok(i)) for i in range(len(self))]
         tgt_mask[self.tok_to_idx(SpecialTokens.UNK)] = True
         tgt_mask[self.tok_to_idx(SpecialTokens.EOS)] = True
-        if bool_mask:
-            return torch.tensor(tgt_mask)
-        else:
-            return torch.tensor([float(b) for b in tgt_mask])
+        return torch.tensor(tgt_mask)
