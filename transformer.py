@@ -312,7 +312,7 @@ class EncoderOrDecoder(torch.nn.Module):
 # The logic in get_transformer configures these two basic templates
 # into the three standard EncoderDecoder, EncoderOnly, and DecoderOnly
 # models, as well as custom options.
-def get_transformer(config_arch, config_train, vocab_size, tgt_vocab_mask=None):
+def get_transformer(config_arch, config_train, vocab_size, tgt_support_mask=None):
     match config_arch.transformer_type:
         case TransformerType.ENCODER_DECODER:
             return TransformerTwoSeq(config_arch, config_train,
@@ -322,21 +322,21 @@ def get_transformer(config_arch, config_train, vocab_size, tgt_vocab_mask=None):
                                      use_mask_dec=True,
                                      output_probs=True,
                                      vocab_size=vocab_size,
-                                     tgt_vocab_mask=tgt_vocab_mask)
+                                     tgt_support_mask=tgt_support_mask)
         case TransformerType.ENCODER_ONLY:
             return TransformerOneSeq(config_arch, config_train,
                                      num_layers=config_arch.num_encoder_layers,
                                      use_mask=False,
                                      output_probs=False,
                                      vocab_size=vocab_size,
-                                     vocab_mask=tgt_vocab_mask)
+                                     support_mask=tgt_support_mask)
         case TransformerType.DECODER_ONLY:
             return TransformerOneSeq(config_arch, config_train,
                                      num_layers=config_arch.num_decoder_layers,
                                      use_mask=True,
                                      output_probs=True,
                                      vocab_size=vocab_size,
-                                     vocab_mask=tgt_vocab_mask)
+                                     support_mask=tgt_support_mask)
         case TransformerType.CUSTOM_TWO_SEQ:
             return TransformerTwoSeq(config_arch, config_train,
                                      num_enc_layers=config_arch.num_encoder_layers,
@@ -345,25 +345,25 @@ def get_transformer(config_arch, config_train, vocab_size, tgt_vocab_mask=None):
                                      use_mask_dec=config_arch.use_masked_att_decoder,
                                      output_probs=config_arch.output_probs,
                                      vocab_size=vocab_size,
-                                     tgt_vocab_mask=tgt_vocab_mask)
+                                     tgt_support_mask=tgt_support_mask)
         case TransformerType.CUSTOM_ONE_SEQ:
             return TransformerOneSeq(config_arch, config_train,
                                      num_layers=config_arch.num_decoder_layers,
                                      use_mask=config_arch.use_masked_att_decoder,
                                      output_probs=config_arch.output_probs,
                                      vocab_size=vocab_size,
-                                     vocab_mask=tgt_vocab_mask)
+                                     support_mask=tgt_support_mask)
 
 class TransformerTwoSeq(torch.nn.Module):
 
-    def __init__(self, config_arch, config_train, num_enc_layers, use_mask_enc, num_dec_layers, use_mask_dec, output_probs, vocab_size, tgt_vocab_mask=None):
+    def __init__(self, config_arch, config_train, num_enc_layers, use_mask_enc, num_dec_layers, use_mask_dec, output_probs, vocab_size, tgt_support_mask=None):
         super().__init__()
         self.output_probs = output_probs
         if self.output_probs:
-            if tgt_vocab_mask == None:
-                self.tgt_vocab_mask = torch.tensor([0.0]*vocab_size)
+            if tgt_support_mask == None:
+                self.tgt_support_mask = torch.tensor([0.0]*vocab_size)
             else:
-                self.tgt_vocab_mask = torch.log(tgt_vocab_mask.type(torch.float))
+                self.tgt_support_mask = torch.log(tgt_support_mask.type(torch.float))
 
         self.embedding  = get_embedding(config_arch, vocab_size)
         self.positional = get_positional_encoding(config_arch)
@@ -394,20 +394,20 @@ class TransformerTwoSeq(torch.nn.Module):
             return tgt_output
         else:
             tgt_logits = self.embedding(tgt_output, reverse=True)
-            tgt_logits_masked = tgt_logits + self.tgt_vocab_mask
+            tgt_logits_masked = tgt_logits + self.tgt_support_mask
             tgt_probs = torch.nn.functional.log_softmax(tgt_logits_masked, dim=-1)
             return tgt_probs
 
 class TransformerOneSeq(torch.nn.Module):
 
-    def __init__(self, config_arch, config_train, num_layers, use_mask, output_probs, vocab_size, vocab_mask=None):
+    def __init__(self, config_arch, config_train, num_layers, use_mask, output_probs, vocab_size, support_mask=None):
         super().__init__()
         self.output_probs = output_probs
         if self.output_probs:
-            if vocab_mask == None:
-                self.vocab_mask = torch.tensor([0.0]*vocab_size)
+            if support_mask == None:
+                self.support_mask = torch.tensor([0.0]*vocab_size)
             else:
-                self.vocab_mask = torch.log(vocab_mask.type(torch.float))
+                self.support_mask = torch.log(support_mask.type(torch.float))
 
         self.embedding  = get_embedding(config_arch, vocab_size)
         self.positional = get_positional_encoding(config_arch)
@@ -428,6 +428,6 @@ class TransformerOneSeq(torch.nn.Module):
             return seq_output
         else:
             seq_logits = self.embedding(seq_output, reverse=True)
-            seq_logits_masked = seq_logits + self.vocab_mask
+            seq_logits_masked = seq_logits + self.support_mask
             seq_probs = torch.nn.functional.log_softmax(seq_logits_masked, dim=-1)
             return seq_probs

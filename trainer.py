@@ -9,7 +9,6 @@
 # TODO(darcey): implement classifier learning also
 
 import torch
-from vocabulary import SpecialTokens
 
 class Trainer():
 
@@ -24,14 +23,14 @@ class Trainer():
         self.num_steps = 0
         self.num_toks = 0
 
-        self.support_mask = vocab.get_tgt_output_mask()
+        self.support_mask = vocab.get_tgt_support_mask()
 
         self.label_smoothing = config_train.label_smoothing
-        ls_mask = vocab.get_tgt_output_mask().type(torch.float)
+        ls_mask = vocab.get_tgt_support_mask().type(torch.float)
         if not config_train.label_smooth_eos:
-            ls_mask[vocab.tok_to_idx(SpecialTokens.EOS)] = 0.0
+            ls_mask[vocab.eos_idx()] = 0.0
         if not config_train.label_smooth_unk:
-            ls_mask[vocab.tok_to_idx(SpecialTokens.UNK)] = 0.0
+            ls_mask[vocab.unk_idx()] = 0.0
         ls_counts = ls_mask / torch.sum(ls_mask)
         self.label_smoothing_counts = ls_counts
 
@@ -112,7 +111,7 @@ class Trainer():
 
     # data: [batch, seq]
     def word_dropout(self, data, dropout):
-        unk_idx = self.vocab.tok_to_idx(SpecialTokens.UNK)
+        unk_idx = self.vocab.unk_idx()
         unk_tensor = torch.full_like(data, unk_idx)
         prob = torch.full_like(data, dropout, dtype=torch.double)
         unk_mask = torch.bernoulli(prob).type(torch.long)
@@ -135,7 +134,7 @@ class Trainer():
         vocab_size   = predicted.size(-1)
         predicted    = predicted.reshape(-1, vocab_size)
         actual       = actual.reshape(-1, vocab_size)
-        pad_idx      = self.vocab.tok_to_idx(SpecialTokens.PAD)
+        pad_idx      = self.vocab.pad_idx()
         non_pad_mask = (actual[:, pad_idx] != 1)
         predicted    = predicted[non_pad_mask]
         actual       = actual[non_pad_mask]

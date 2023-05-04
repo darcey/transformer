@@ -25,7 +25,8 @@ class TestInit(unittest.TestCase):
     def setUp(self):
         fake_src = [["the", "dog", "walked", "to", "the", "park"]]
         fake_tgt = [["the", "ogday", "alkedway", "to", "the", "arkpay"]]
-        self.vocab = Vocabulary(fake_src, fake_tgt)
+        self.vocab = Vocabulary()
+        self.vocab.initialize_from_data(fake_src, fake_tgt)
         self.model = MockModel(len(self.vocab))
         self.config = get_config_train()
 
@@ -58,7 +59,8 @@ class TestTrainOneStep(unittest.TestCase):
 
     def testParamsUpdate(self):
         config = get_config_train()
-        vocab = Vocabulary([],[])
+        vocab = Vocabulary()
+        vocab.initialize_from_data([],[])
         l = len(vocab)
 
         model = MockModel(l)
@@ -80,7 +82,8 @@ class TestPerplexity(unittest.TestCase):
 
     def setUp(self):
         self.config = get_config_train()
-        self.vocab = Vocabulary([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
+        self.vocab = Vocabulary()
+        self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
 
         class MockData:
             def __init__(self, vocab):
@@ -136,7 +139,8 @@ class TestPrepBatch(unittest.TestCase):
 
     def setUp(self):
         self.model = torch.nn.Linear(10,10)
-        self.vocab = Vocabulary([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
+        self.vocab = Vocabulary()
+        self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
         self.config = get_config_train()
         self.trainer = Trainer(self.model, self.vocab, self.config)
 
@@ -169,7 +173,8 @@ class TestWordDropout(unittest.TestCase):
 
     def setUp(self):
         self.config = get_config_train()
-        self.vocab = Vocabulary([],[])
+        self.vocab = Vocabulary()
+        self.vocab.initialize_from_data([],[])
         l = len(self.vocab)
         self.model = torch.nn.Linear(l, l)
         self.trainer = Trainer(self.model, self.vocab, self.config)
@@ -192,7 +197,8 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     def setUp(self):
         self.model = torch.nn.Linear(10,10)
-        self.vocab = Vocabulary([],[])
+        self.vocab = Vocabulary()
+        self.vocab.initialize_from_data([],[])
         self.assertEqual(self.vocab.tok_to_idx(SpecialTokens.PAD), 0)
         self.config = get_config_train()
 

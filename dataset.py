@@ -6,7 +6,6 @@
 import random
 import numpy as np
 import torch
-from vocabulary import SpecialTokens
 
 
 
@@ -58,17 +57,16 @@ class Seq2SeqTrainDataset:
         tgt_in_tensor  = torch.full((num_sents, max_tgt_len+1), 0)
         tgt_out_tensor = torch.full((num_sents, max_tgt_len+1), 0)
 
-        PAD = [self.vocab.tok_to_idx(SpecialTokens.PAD)]
-        BOS = [self.vocab.tok_to_idx(SpecialTokens.BOS)]
-        EOS = [self.vocab.tok_to_idx(SpecialTokens.EOS)]
+        PAD = self.vocab.pad_idx()
+        BOS = self.vocab.bos_idx()
+        EOS = self.vocab.eos_idx()
         for i, (src_sent, tgt_sent) in enumerate(sent_list):
-            src_tensor[i]     = torch.tensor(src_sent + EOS + PAD*(max_src_len - len(src_sent)))
-            tgt_in_tensor[i]  = torch.tensor(BOS + tgt_sent + PAD*(max_tgt_len - len(tgt_sent)))
-            tgt_out_tensor[i] = torch.tensor(tgt_sent + EOS + PAD*(max_tgt_len - len(tgt_sent)))
+            src_tensor[i]     = torch.tensor(src_sent + [EOS] + [PAD]*(max_src_len - len(src_sent)))
+            tgt_in_tensor[i]  = torch.tensor([BOS] + tgt_sent + [PAD]*(max_tgt_len - len(tgt_sent)))
+            tgt_out_tensor[i] = torch.tensor(tgt_sent + [EOS] + [PAD]*(max_tgt_len - len(tgt_sent)))
 
-        pad_idx = self.vocab.tok_to_idx(SpecialTokens.PAD)
-        num_src_toks = torch.sum(src_tensor != pad_idx)
-        num_tgt_toks = torch.sum(tgt_in_tensor != pad_idx)
+        num_src_toks = torch.sum(src_tensor != PAD)
+        num_tgt_toks = torch.sum(tgt_in_tensor != PAD)
 
         return {
             "src": src_tensor,

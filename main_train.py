@@ -1,5 +1,4 @@
 # TODO(darcey): figure out how to handle custom config files
-# TODO(darcey): save vocab to file
 # TODO(darcey): make the generator, pass it into the trainer
 
 # TODO(darcey): consider moving tok-to-idx and unking into dataset creation
@@ -36,6 +35,9 @@ def get_parser():
     parser.add_argument('--dev-tgt', type=str, required=True,
                         help='File location for tgt side dev data')
 
+    parser.add_argument('--vocab', type=str, required=True,
+                        help='File location to write the vocabulary to')
+
     return parser
 
 if __name__ == '__main__':
@@ -57,8 +59,9 @@ if __name__ == '__main__':
     config_train.max_epochs = 2000
     
     # make the vocabulary; use it to preprocess the data
-    # TODO(darcey): save vocab to file
-    vocab = Vocabulary(train_src, train_tgt)
+    vocab = Vocabulary()
+    vocab.initialize_from_data(train_src, train_tgt)
+    vocab.write_to_file(args.vocab)
 
     train_src_unk = [vocab.unk_src(sent) for sent in train_src]
     train_tgt_unk = [vocab.unk_tgt(sent) for sent in train_tgt]
@@ -75,8 +78,8 @@ if __name__ == '__main__':
     dev_batches = Seq2SeqTrainDataset(dev_src_idxs, dev_tgt_idxs, vocab, config_train.batch_size, randomize=False)
 
     # make the model
-    tgt_output_mask = vocab.get_tgt_output_mask()
-    model = get_transformer(config_arch, config_train, len(vocab), tgt_output_mask)
+    tgt_support_mask = vocab.get_tgt_support_mask()
+    model = get_transformer(config_arch, config_train, len(vocab), tgt_support_mask)
     
     # TODO(darcey): if using dev BLEU, make the generator
     

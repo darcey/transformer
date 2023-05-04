@@ -7,7 +7,8 @@ from vocabulary import *
 class TestSeq2SeqTrainDataset(unittest.TestCase):
 
     def setUp(self):
-        self.vocab = Vocabulary([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
+        self.vocab = Vocabulary()
+        self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
 
     def testSortByTgtLen(self):
         src = [[1,2,3,4],[1,2,3,4,5],[1,2],[1,2,3]]
