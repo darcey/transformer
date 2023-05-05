@@ -128,17 +128,17 @@ class Vocabulary:
 
     # assumes t is either a single token or a list of tokens
     def tok_to_idx(self, t):
-        if isinstance(t, str) or t in self.special_toks:
-            return self.t_to_i[t]
-        else:
+        if isinstance(t, list):
             return [self.t_to_i[tok] for tok in t]
+        else:
+            return self.t_to_i[t]
 
     # assumes i is either a single index or a list of indices
     def idx_to_tok(self, i):
-        if isinstance(i, int):
-            return self.i_to_t[i]
-        else:
+        if isinstance(i, list):
             return [self.i_to_t[idx] for idx in i]
+        else:
+            return self.i_to_t[i]
 
     # assumes sent is a list of tokens
     def unk_src(self, sent):

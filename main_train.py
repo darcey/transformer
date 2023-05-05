@@ -54,8 +54,8 @@ if __name__ == '__main__':
     # TODO(darcey): figure out how to handle custom config files
     config_arch = get_config_arch()
     config_train = get_config_train()
-    config_train.batch_size = 256
-    config_train.epoch_size = 10
+    config_train.batch_size = 128
+    config_train.epoch_size = 50
     config_train.max_epochs = 2000
     
     # make the vocabulary; use it to preprocess the data

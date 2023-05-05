@@ -15,7 +15,8 @@ class Trainer():
     def __init__(self, model, vocab, config_train):
         self.vocab = vocab
         self.model = model
-        self.optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+        #self.optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+        self.optimizer = torch.optim.Adam(model.parameters(), lr=3e-6)
 
         self.max_epochs = config_train.max_epochs
         self.epoch_size = config_train.epoch_size

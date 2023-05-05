@@ -62,6 +62,10 @@ class TestVocabulary(unittest.TestCase):
             self.assertEqual(vocab.idx_to_tok(vocab.tok_to_idx(tok)), tok)
         for idx in range(len(vocab)):
             self.assertEqual(vocab.tok_to_idx(vocab.idx_to_tok(idx)), idx)
+        tok_list = list(vocab.special_toks | vocab.src_tgt_toks)
+        idx_list = list(range(len(vocab)))
+        self.assertEqual(vocab.idx_to_tok(vocab.tok_to_idx(tok_list)), tok_list)
+        self.assertEqual(vocab.tok_to_idx(vocab.idx_to_tok(idx_list)), idx_list)
 
     def testUnk(self):
         vocab = Vocabulary()
