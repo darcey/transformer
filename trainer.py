@@ -43,6 +43,9 @@ class Trainer():
         return
 
     def train(self, train, dev):
+        dev_ppl = self.perplexity(dev)
+        print("DEV PPL: " + str(dev_ppl))
+        print("--------------------------------")
         for epoch in range(self.max_epochs):
             for step in range(self.epoch_size):
                 # prepare the batch
@@ -122,39 +125,39 @@ class Trainer():
         return data * (1 - unk_mask) + unk_tensor * unk_mask
 
     # predicted: [batch, tgt_seq, vocab_size] <-- log probs output by model
-    # actual:    [batch, tgt_seq, vocab_size] <-- one-hot of correct answer
+    # gold:    [batch, tgt_seq, vocab_size] <-- one-hot of correct answer
     # ret:       scalar
-    def loss(self, predicted, actual):
-        cross_ent, num_toks = self.cross_ent(predicted, actual, smooth=True)
+    def loss(self, predicted, gold):
+        cross_ent, num_toks = self.cross_ent(predicted, gold, smooth=True)
         return cross_ent / num_toks
 
     # cross-entropy as estimated from an empirical sample
     # predicted: [batch, tgt_seq, vocab_size] <-- log probs output by model
-    # actual:    [batch, tgt_seq, vocab_size] <-- one-hot of correct answer
+    # gold:    [batch, tgt_seq, vocab_size] <-- one-hot of correct answer
     # ret:       scalar
-    def cross_ent(self, predicted, actual, smooth=False):
+    def cross_ent(self, predicted, gold, smooth=False):
         # filter out positions which are PAD
         # [batch*tgt_seq, vocab_size]
         vocab_size   = predicted.size(-1)
         predicted    = predicted.reshape(-1, vocab_size)
-        actual       = actual.reshape(-1, vocab_size)
+        gold         = gold.reshape(-1, vocab_size)
         pad_idx      = self.vocab.pad_idx()
-        non_pad_mask = (actual[:, pad_idx] != 1)
+        non_pad_mask = (gold[:, pad_idx] != 1)
         predicted    = predicted[non_pad_mask]
-        actual       = actual[non_pad_mask]
+        gold       = gold[non_pad_mask]
         num_toks     = torch.sum(non_pad_mask)
 
         # compute the smoothed true counts according to label smoothing
         # [batch*tgt_seq, vocab_size]
         ls = self.label_smoothing if smooth else 0.0
-        actual_smoothed = (1 - ls) * actual + ls * self.label_smoothing_counts
+        gold_smoothed = (1 - ls) * gold + ls * self.label_smoothing_counts
 
         # remove positions not in the support of the model/true distribution
         # (because they are src vocab words or special tokens that can never
-        #  appear on the target side)
+        #  appear on the target side, and should have probability -inf)
         predicted = predicted[:, self.support_mask]
-        actual_smoothed = actual_smoothed[:, self.support_mask]
+        gold_smoothed = gold_smoothed[:, self.support_mask]
 
         # compute the cross entropy
-        cross_ent = actual_smoothed * predicted
+        cross_ent = - gold_smoothed * predicted
         return torch.sum(cross_ent), num_toks

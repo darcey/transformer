@@ -212,9 +212,9 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer = Trainer(self.model, self.vocab, self.config, self.device)
 
         predicted = torch.rand(2, 3, 4)
-        actual    = torch.rand(2, 3, 4)
-        c_e, n_t  = trainer.cross_ent(predicted, actual)
-        loss      = trainer.loss(predicted, actual)
+        gold      = torch.rand(2, 3, 4)
+        c_e, n_t  = trainer.cross_ent(predicted, gold)
+        loss      = trainer.loss(predicted, gold)
         self.assertEqual(c_e.shape, ())
         self.assertEqual(n_t.shape, ())
         self.assertEqual(loss.shape, ())
@@ -224,9 +224,9 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer.label_smoothing = 0.5
 
         predicted = torch.rand(2, 3, 4)
-        actual    = torch.rand(2, 3, 4)
-        ce1, nt1  = trainer.cross_ent(predicted, actual, smooth=False)
-        ce2, nt2  = trainer.cross_ent(predicted, actual, smooth=True)
+        gold      = torch.rand(2, 3, 4)
+        ce1, nt1  = trainer.cross_ent(predicted, gold, smooth=False)
+        ce2, nt2  = trainer.cross_ent(predicted, gold, smooth=True)
         self.assertFalse(torch.equal(ce1, ce2))
         self.assertTrue(torch.equal(nt1, nt2))
 
@@ -244,9 +244,9 @@ class TestLossAndCrossEnt(unittest.TestCase):
         nh = -100
         predicted = torch.tensor([[[nh, 0, nh, nh], [nh, nh, 0, nh], [nh, nh, nh, 0]],
                                   [[nh, nh, nh, 0], [nh, nh, 0, nh], [nh, 0, nh, nh]]])
-        actual    = torch.tensor([[[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+        gold      = torch.tensor([[[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
                                   [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0]]])
-        loss      = trainer.loss(predicted, actual)
+        loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor(0.0)))
 
     # no label smoothing, no PAD, random predictions
@@ -257,9 +257,9 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer.support_mask = torch.tensor([True]*4)
 
         predicted = torch.rand(1, 2, 4)
-        actual    = torch.tensor([[[0,1,0,0], [0,0,1,0]]])
-        loss      = trainer.loss(predicted, actual)
-        correct   = (predicted[0,0,1] + predicted[0,1,2]) / 2
+        gold    = torch.tensor([[[0,1,0,0], [0,0,1,0]]])
+        loss      = trainer.loss(predicted, gold)
+        correct   = (- predicted[0,0,1] - predicted[0,1,2]) / 2
         self.assertTrue(torch.equal(loss, correct))
 
     # no label smoothing, PAD
@@ -269,11 +269,11 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
 
-        predicted = torch.tensor([[[1, 3, 3, 3], [30, 30, 10, 30], [300, 300, 300, 100]],
-                                  [[3000, 3000, 3000, 1000], [10000, 30000, 30000, 30000], [300000, 100000, 300000, 300000]]])
-        actual    = torch.tensor([[[1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+        predicted = torch.tensor([[[-1, -3, -3, -3], [-30, -30, -10, -30], [-300, -300, -300, -100]],
+                                  [[-3000, -3000, -3000, -1000], [-10000, -30000, -30000, -30000], [-300000, -100000, -300000, -300000]]])
+        gold      = torch.tensor([[[1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
                                   [[0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0]]])
-        loss      = trainer.loss(predicted, actual)
+        loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor(101110.0/4.0)))
 
     # maximum label smoothing, no PAD, no label smoothing mask
@@ -283,11 +283,11 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
 
-        predicted = torch.tensor([[[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4],
-                                   [1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4]]])
-        actual    = torch.tensor([[[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+        predicted = torch.tensor([[[-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4],
+                                   [-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4]]])
+        gold      = torch.tensor([[[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
                                   [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0]]])
-        loss      = trainer.loss(predicted, actual)
+        loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor(2.5)))
 
     # normal loss and label smoothing, no PAD, no mask
@@ -297,11 +297,11 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
 
-        predicted = torch.tensor([[[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4],
-                                   [1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4]]])
-        actual    = torch.tensor([[[0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1]],
+        predicted = torch.tensor([[[-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4],
+                                   [-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4]]])
+        gold      = torch.tensor([[[0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1]],
                                   [[0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1]]])
-        loss      = trainer.loss(predicted, actual)
+        loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor((2.5 + 4)/2)))
 
     # tests label smoothing mask (max label smoothing, no PAD)
@@ -311,11 +311,11 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer.label_smoothing_counts = torch.tensor([0.0, 0.0, 0.5, 0.5])
         trainer.support_mask = torch.tensor([True]*4)
 
-        predicted = torch.tensor([[[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4],
-                                   [1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4]]])
-        actual    = torch.tensor([[[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+        predicted = torch.tensor([[[-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4],
+                                   [-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4]]])
+        gold      = torch.tensor([[[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
                                   [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0]]])
-        loss      = trainer.loss(predicted, actual)
+        loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor(3.5)))
 
     # tests support mask (no label smoothing, no PAD)
@@ -324,9 +324,9 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer.label_smoothing = 0
         trainer.support_mask = torch.tensor([True, False, True, True])
 
-        predicted = torch.tensor([[[3, 3, 3, 3], [30, 30, 10, 30], [300, 300, 300, 100]],
-                                  [[3000, 3000, 3000, 1000], [30000, 30000, 30000, 30000], [300000, 300000, 100000, 300000]]])
-        actual    = torch.tensor([[[0, 1, 0, 0], [0, 1, 1, 0], [0, 1, 0, 1]],
+        predicted = torch.tensor([[[-3, -3, -3, -3], [-30, -30, -10, -30], [-300, -300, -300, -100]],
+                                  [[-3000, -3000, -3000, -1000], [-30000, -30000, -30000, -30000], [-300000, -300000, -100000, -300000]]])
+        gold      = torch.tensor([[[0, 1, 0, 0], [0, 1, 1, 0], [0, 1, 0, 1]],
                                   [[0, 1, 0, 1], [0, 1, 0, 0], [0, 1, 1, 0]]])
-        loss      = trainer.loss(predicted, actual)
+        loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor(101110.0/6.0)))
