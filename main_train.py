@@ -5,6 +5,7 @@
 # TODO(darcey): make it possible to resume training from a checkpoint
 
 import argparse
+import torch
 
 from configuration import *
 from trainer import Trainer
@@ -54,7 +55,7 @@ if __name__ == '__main__':
     # TODO(darcey): figure out how to handle custom config files
     config_arch = get_config_arch()
     config_train = get_config_train()
-    config_train.batch_size = 128
+    config_train.batch_size = 512
     config_train.epoch_size = 50
     config_train.max_epochs = 2000
     
@@ -84,5 +85,6 @@ if __name__ == '__main__':
     # TODO(darcey): if using dev BLEU, make the generator
     
     # make the trainer
-    trainer = Trainer(model, vocab, config_train)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    trainer = Trainer(model, vocab, config_train, device)
     trainer.train(train_batches, dev_batches)

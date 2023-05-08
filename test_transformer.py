@@ -1,5 +1,5 @@
-# TODO(darcey): write tests which confirm that stuff gets gradient updated
-# TODO(darcey): write unit tests which confirm that behavior is the same on CPU and GPU
+# TODO(darcey): write tests which confirm that the model has all the parameters it's supposed to
+# TODO(darcey): factor the tests so that mocks exist somewhere centralized instead of being created inside each test (and copied over to test_transformer_gpu sometimes also)
 
 import torch
 import torch.testing

@@ -4,7 +4,6 @@
 # TODO(darcey): improve how the support mask is handled, so that the logic around it, and the connection to the label smoothing counts, is less confusing (see tests for loss)
 # TODO(darcey): right now prep_batch is run identically every time we evaluate on the dev data; do it just once for dev data
 # TODO(darcey): consider moving the label smoothing initialization stuff into its own function for modularity
-# TODO(darcey): improve code structure of the functions shared between train and perplexity
 # TODO(darcey): improve torch efficiency throughout codebase (switch from reshape to view? bmm vs. matmul? stop using one-hots where possible?)
 # TODO(darcey): implement classifier learning also
 
@@ -12,11 +11,10 @@ import torch
 
 class Trainer():
 
-    def __init__(self, model, vocab, config_train):
+    def __init__(self, model, vocab, config_train, device):
         self.vocab = vocab
         self.model = model
-        #self.optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
-        self.optimizer = torch.optim.Adam(model.parameters(), lr=3e-6)
+        self.optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
         self.max_epochs = config_train.max_epochs
         self.epoch_size = config_train.epoch_size
@@ -36,6 +34,11 @@ class Trainer():
         self.label_smoothing_counts = ls_counts
 
         self.word_dropout_prob = config_train.word_dropout
+
+        self.device = device
+        self.model.to(device)
+        self.support_mask = self.support_mask.to(device)
+        self.label_smoothing_counts = self.label_smoothing_counts.to(device)
 
         return
 
@@ -83,8 +86,8 @@ class Trainer():
                 # get the log probability of the batch
                 log_probs = self.model(src, tgt_in)
                 cross_ent, num_toks = self.cross_ent(log_probs, tgt_out)
-                cross_ent_total += cross_ent
-                num_toks_total += num_toks
+                cross_ent_total += cross_ent.cpu()
+                num_toks_total += num_toks.cpu()
 
             # compute perplexity based on all the log probs
             perplexity = torch.exp(cross_ent_total / num_toks_total).item()
@@ -93,9 +96,9 @@ class Trainer():
 
     def prep_batch(self, batch, do_dropout=False):
         # get relevant info from batch
-        src = batch["src"]
-        tgt_in = batch["tgt_in"]
-        tgt_out = batch["tgt_out"]
+        src = batch["src"].to(self.device)
+        tgt_in = batch["tgt_in"].to(self.device)
+        tgt_out = batch["tgt_out"].to(self.device)
 
         # word dropout
         if do_dropout:
@@ -104,9 +107,9 @@ class Trainer():
 
         # convert to one-hots
         vocab_size = len(self.vocab)
-        src = torch.nn.functional.one_hot(src, vocab_size).type(torch.FloatTensor)
-        tgt_in = torch.nn.functional.one_hot(tgt_in, vocab_size).type(torch.FloatTensor)
-        tgt_out = torch.nn.functional.one_hot(tgt_out, vocab_size).type(torch.FloatTensor)
+        src = torch.nn.functional.one_hot(src, vocab_size).type(torch.float)
+        tgt_in = torch.nn.functional.one_hot(tgt_in, vocab_size).type(torch.float)
+        tgt_out = torch.nn.functional.one_hot(tgt_out, vocab_size).type(torch.float)
 
         return src, tgt_in, tgt_out
 

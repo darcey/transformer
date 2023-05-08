@@ -29,9 +29,10 @@ class TestInit(unittest.TestCase):
         self.vocab.initialize_from_data(fake_src, fake_tgt)
         self.model = MockModel(len(self.vocab))
         self.config = get_config_train()
+        self.device = "cpu"
 
     def testLabelSmoothingMaskSubsetOfSupport(self):
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         for i in range(len(self.vocab)):
             if not trainer.support_mask[i]:
                 self.assertEqual(trainer.label_smoothing_counts[i], 0.0)
@@ -39,7 +40,7 @@ class TestInit(unittest.TestCase):
     def testLabelSmoothingCounts(self):
         self.config.label_smooth_eos = True
         self.config.label_smooth_unk = True
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         ls_counts = trainer.label_smoothing_counts
         self.assertEqual(ls_counts[self.vocab.tok_to_idx("the")], 1.0/7.0)
         self.assertEqual(ls_counts[self.vocab.tok_to_idx(SpecialTokens.EOS)], 1.0/7.0)
@@ -47,7 +48,7 @@ class TestInit(unittest.TestCase):
 
         self.config.label_smooth_eos = False
         self.config.label_smooth_unk = False
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         ls_counts = trainer.label_smoothing_counts
         self.assertEqual(ls_counts[self.vocab.tok_to_idx("the")], 1.0/5.0)
         self.assertEqual(ls_counts[self.vocab.tok_to_idx(SpecialTokens.EOS)], 0.0)
@@ -58,6 +59,7 @@ class TestInit(unittest.TestCase):
 class TestTrainOneStep(unittest.TestCase):
 
     def testParamsUpdate(self):
+        device = "cpu"
         config = get_config_train()
         vocab = Vocabulary()
         vocab.initialize_from_data([],[])
@@ -69,7 +71,7 @@ class TestTrainOneStep(unittest.TestCase):
         inputs2 = torch.rand(2,5,l)
         targets = torch.rand(2,5,l)
 
-        trainer = Trainer(model, vocab, config)
+        trainer = Trainer(model, vocab, config, device)
         trainer.train_one_step(inputs1, inputs2, targets)
 
         old_params = {name:param for name, param in model_old.named_parameters()}
@@ -81,6 +83,7 @@ class TestTrainOneStep(unittest.TestCase):
 class TestPerplexity(unittest.TestCase):
 
     def setUp(self):
+        self.device = "cpu"
         self.config = get_config_train()
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
@@ -128,7 +131,7 @@ class TestPerplexity(unittest.TestCase):
             def forward(self, in1, in2):
                 return self.eye(in2)
         self.model = MockModelIdentity()
-        self.trainer = Trainer(self.model, self.vocab, self.config)
+        self.trainer = Trainer(self.model, self.vocab, self.config, self.device)
 
         ppl = self.trainer.perplexity(self.data)
         self.assertEqual(ppl, 1.0)
@@ -142,7 +145,8 @@ class TestPrepBatch(unittest.TestCase):
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
         self.config = get_config_train()
-        self.trainer = Trainer(self.model, self.vocab, self.config)
+        self.device = "cpu"
+        self.trainer = Trainer(self.model, self.vocab, self.config, self.device)
 
         PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
         BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
@@ -172,12 +176,13 @@ class TestPrepBatch(unittest.TestCase):
 class TestWordDropout(unittest.TestCase):
 
     def setUp(self):
+        self.device = "cpu"
         self.config = get_config_train()
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([],[])
         l = len(self.vocab)
         self.model = torch.nn.Linear(l, l)
-        self.trainer = Trainer(self.model, self.vocab, self.config)
+        self.trainer = Trainer(self.model, self.vocab, self.config, self.device)
 
     def testWordDropoutNoUnk(self):
         input_tensor = torch.rand(20,10)
@@ -201,9 +206,10 @@ class TestLossAndCrossEnt(unittest.TestCase):
         self.vocab.initialize_from_data([],[])
         self.assertEqual(self.vocab.tok_to_idx(SpecialTokens.PAD), 0)
         self.config = get_config_train()
+        self.device = "cpu"
 
     def testShape(self):
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
 
         predicted = torch.rand(2, 3, 4)
         actual    = torch.rand(2, 3, 4)
@@ -214,7 +220,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
         self.assertEqual(loss.shape, ())
 
     def testCrossEntSmoothParamDoesSomething(self):
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         trainer.label_smoothing = 0.5
 
         predicted = torch.rand(2, 3, 4)
@@ -226,7 +232,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # no label smoothing, no PAD, perfect predictions
     def testPerfectPrediction(self):
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
@@ -245,7 +251,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # no label smoothing, no PAD, random predictions
     def testNoLabelSmoothing(self):
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
@@ -258,7 +264,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # no label smoothing, PAD
     def testNoLabelSmoothingPad(self):
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
@@ -272,7 +278,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # maximum label smoothing, no PAD, no label smoothing mask
     def testMaxLabelSmoothing(self):
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         trainer.label_smoothing = 1
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
@@ -286,7 +292,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # normal loss and label smoothing, no PAD, no mask
     def testInterpolation(self):
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         trainer.label_smoothing = 0.5
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
@@ -300,7 +306,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # tests label smoothing mask (max label smoothing, no PAD)
     def testLabelSmoothingMask(self):
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         trainer.label_smoothing = 1
         trainer.label_smoothing_counts = torch.tensor([0.0, 0.0, 0.5, 0.5])
         trainer.support_mask = torch.tensor([True]*4)
@@ -314,7 +320,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # tests support mask (no label smoothing, no PAD)
     def testSupportMask(self):
-        trainer = Trainer(self.model, self.vocab, self.config)
+        trainer = Trainer(self.model, self.vocab, self.config, self.device)
         trainer.label_smoothing = 0
         trainer.support_mask = torch.tensor([True, False, True, True])
 

@@ -1,6 +1,3 @@
-# TODO(darcey): figure out if I need to do all the to_device stuff here
-# TODO(darcey): figure out if I need to include dtype information here
-
 # TODO(darcey): look into methods of initializing the parameters (see Toan's paper, section 2.2)
 # TODO(darcey): think about the joint scale norm / fix norm thing from Toan's paper (section 2.3) and see whether it's equivalent to what I'm doing
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
@@ -295,6 +292,7 @@ class EncoderOrDecoder(torch.nn.Module):
         if self.use_mask:
             l = this_seq.size(1)
             mask = torch.triu(torch.full((l, l), float('-inf')), diagonal=1)
+            mask = mask.type(this_seq.type())
         else:
             mask = None        
 
@@ -361,9 +359,10 @@ class TransformerTwoSeq(torch.nn.Module):
         self.output_probs = output_probs
         if self.output_probs:
             if tgt_support_mask == None:
-                self.tgt_support_mask = torch.tensor([0.0]*vocab_size)
+                tgt_support_mask = torch.tensor([0.0]*vocab_size)
             else:
-                self.tgt_support_mask = torch.log(tgt_support_mask.type(torch.float))
+                tgt_support_mask = torch.log(tgt_support_mask.type(torch.float))
+            self.register_buffer('tgt_support_mask', tgt_support_mask)
 
         self.embedding  = get_embedding(config_arch, vocab_size)
         self.positional = get_positional_encoding(config_arch)
@@ -405,9 +404,10 @@ class TransformerOneSeq(torch.nn.Module):
         self.output_probs = output_probs
         if self.output_probs:
             if support_mask == None:
-                self.support_mask = torch.tensor([0.0]*vocab_size)
+                support_mask = torch.tensor([0.0]*vocab_size)
             else:
-                self.support_mask = torch.log(support_mask.type(torch.float))
+                support_mask = torch.log(support_mask.type(torch.float))
+            self.register_buffer('support_mask', support_mask)
 
         self.embedding  = get_embedding(config_arch, vocab_size)
         self.positional = get_positional_encoding(config_arch)
