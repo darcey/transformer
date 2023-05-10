@@ -254,8 +254,7 @@ class TestMultiHeadAttention(unittest.TestCase):
 class TestSublayerConnection(unittest.TestCase):
 
     def setUp(self):
-        self.config_arch = get_config_arch()
-        self.config_train = get_config_train()
+        self.config = read_config("configuration.toml")
 
     def testShape(self):
         mock_sublayer = None
@@ -264,34 +263,34 @@ class TestSublayerConnection(unittest.TestCase):
         y = torch.rand(100,20,512)
 
         # pre norm, resid
-        self.config_arch.pre_norm = True
-        self.config_arch.use_resid_connection = True
+        self.config.arch.pre_norm = True
+        self.config.arch.use_resid_connection = True
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         out = slc(y)
         self.assertEqual(out.shape, (100,20,512))
 
         # pre norm, no resid
-        self.config_arch.pre_norm = True
-        self.config_arch.use_resid_connection = False
+        self.config.arch.pre_norm = True
+        self.config.arch.use_resid_connection = False
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         out = slc(y)
         self.assertEqual(out.shape, (100,20,512))
 
         # post norm, resid
-        self.config_arch.pre_norm = False
-        self.config_arch.use_resid_connection = True
+        self.config.arch.pre_norm = False
+        self.config.arch.use_resid_connection = True
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         out = slc(y)
         self.assertEqual(out.shape, (100,20,512))
 
         # post norm, no resid
-        self.config_arch.pre_norm = False
-        self.config_arch.use_resid_connection = False
+        self.config.arch.pre_norm = False
+        self.config.arch.use_resid_connection = False
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         out = slc(y)
         self.assertEqual(out.shape, (100,20,512))
 
@@ -308,7 +307,7 @@ class TestSublayerConnection(unittest.TestCase):
             return y
         mock_sublayer_func = lambda s, y, x, m: s(y, m, x, x)
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc(y, x, m)
 
         # no args
@@ -318,7 +317,7 @@ class TestSublayerConnection(unittest.TestCase):
             return y
         mock_sublayer_func = lambda s, y: s(y)
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc(y)
 
     def testCorrectnessMocked(self):
@@ -331,12 +330,12 @@ class TestSublayerConnection(unittest.TestCase):
         mock_sublayer = lambda y: y + 2
         mock_sublayer_func = lambda s, y: s(y)
         input_tensor = torch.ones(3,4,5)
-        self.config_train.dropout = 0.0
+        self.config.train.dropout = 0.0
 
         # pre norm, resid
-        self.config_arch.pre_norm = True
-        self.config_arch.use_resid_connection = True
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        self.config.arch.pre_norm = True
+        self.config.arch.use_resid_connection = True
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc.norm = mock_norm
 
         correct_tensor = torch.ones(3,4,5) * 13
@@ -344,9 +343,9 @@ class TestSublayerConnection(unittest.TestCase):
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
         # pre norm, no resid
-        self.config_arch.pre_norm = True
-        self.config_arch.use_resid_connection = False
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        self.config.arch.pre_norm = True
+        self.config.arch.use_resid_connection = False
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc.norm = mock_norm
 
         correct_tensor = torch.ones(3,4,5) * 12
@@ -354,9 +353,9 @@ class TestSublayerConnection(unittest.TestCase):
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
         # post norm, resid
-        self.config_arch.pre_norm = False
-        self.config_arch.use_resid_connection = True
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        self.config.arch.pre_norm = False
+        self.config.arch.use_resid_connection = True
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc.norm = mock_norm
 
         correct_tensor = torch.ones(3,4,5) * 40
@@ -364,9 +363,9 @@ class TestSublayerConnection(unittest.TestCase):
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
         # post norm, no resid
-        self.config_arch.pre_norm = False
-        self.config_arch.use_resid_connection = False
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        self.config.arch.pre_norm = False
+        self.config.arch.use_resid_connection = False
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc.norm = mock_norm
 
         correct_tensor = torch.ones(3,4,5) * 30
@@ -377,10 +376,10 @@ class TestSublayerConnection(unittest.TestCase):
         mock_sublayer = None
         def mock_sublayer_func(s, y, *other_inputs):
             return y
-        self.config_arch.pre_norm = True
-        self.config_train.dropout = 1.0
+        self.config.arch.pre_norm = True
+        self.config.train.dropout = 1.0
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc.train()
         input_tensor = torch.rand(100,20,512)
         actual_tensor = slc(input_tensor)
@@ -391,8 +390,7 @@ class TestSublayerConnection(unittest.TestCase):
 class TestLayer(unittest.TestCase):
 
     def setUp(self):
-        self.config_arch = get_config_arch()
-        self.config_train = get_config_train()
+        self.config = read_config("configuration.toml")
 
     def testBadInput(self):
         x = torch.rand(100,10,512)
@@ -400,7 +398,7 @@ class TestLayer(unittest.TestCase):
         ymask = torch.triu(torch.full((20,20), float('-inf')), diagonal=1)
 
         # encoder
-        el = Layer(self.config_arch, self.config_train, take_two_seqs=False, use_mask=False)
+        el = Layer(self.config, take_two_seqs=False, use_mask=False)
         with self.assertRaises(ValueError):
             out = el(y, mask=ymask)
         with self.assertRaises(ValueError):
@@ -409,7 +407,7 @@ class TestLayer(unittest.TestCase):
             out = el(y, x, ymask)
 
         # decoder only
-        dol = Layer(self.config_arch, self.config_train, take_two_seqs=False, use_mask=True)
+        dol = Layer(self.config, take_two_seqs=False, use_mask=True)
         with self.assertRaises(ValueError):
             out = dol(y)
         with self.assertRaises(ValueError):
@@ -418,7 +416,7 @@ class TestLayer(unittest.TestCase):
             out = dol(y, x, ymask)
 
         # ???
-        weirdl = Layer(self.config_arch, self.config_train, take_two_seqs=True, use_mask=False)
+        weirdl = Layer(self.config, take_two_seqs=True, use_mask=False)
         with self.assertRaises(ValueError):
             out = weirdl(y)
         with self.assertRaises(ValueError):
@@ -427,7 +425,7 @@ class TestLayer(unittest.TestCase):
             out = weirdl(y, x, ymask)
 
         # decoder
-        dl = Layer(self.config_arch, self.config_train, take_two_seqs=True, use_mask=True)
+        dl = Layer(self.config, take_two_seqs=True, use_mask=True)
         with self.assertRaises(ValueError):
             out = dl(y)
         with self.assertRaises(ValueError):
@@ -441,22 +439,22 @@ class TestLayer(unittest.TestCase):
         ymask = torch.triu(torch.full((20,20), float('-inf')), diagonal=1)
 
         # encoder
-        el = Layer(self.config_arch, self.config_train, take_two_seqs=False, use_mask=False)
+        el = Layer(self.config, take_two_seqs=False, use_mask=False)
         out = el(y)
         self.assertEqual(out.shape, (100,20,512))
 
         # decoder only
-        dol = Layer(self.config_arch, self.config_train, take_two_seqs=False, use_mask=True)
+        dol = Layer(self.config, take_two_seqs=False, use_mask=True)
         out = dol(y, mask=ymask)
         self.assertEqual(out.shape, (100,20,512))
 
         # ???
-        weirdl = Layer(self.config_arch, self.config_train, take_two_seqs=True, use_mask=False)
+        weirdl = Layer(self.config, take_two_seqs=True, use_mask=False)
         out = weirdl(y, x)
         self.assertEqual(out.shape, (100,20,512))
 
         # decoder
-        dl = Layer(self.config_arch, self.config_train, take_two_seqs=True, use_mask=True)
+        dl = Layer(self.config, take_two_seqs=True, use_mask=True)
         out = dl(y, x, ymask)
         self.assertEqual(out.shape, (100,20,512))
 
@@ -465,20 +463,19 @@ class TestLayer(unittest.TestCase):
 class TestEncoderOrDecoder(unittest.TestCase):
 
     def setUp(self):
-        self.config_arch = get_config_arch()
-        self.config_train = get_config_train()
+        self.config = read_config("configuration.toml")
 
     def testBadInput(self):
         x = torch.rand(50,10,512)
         y = torch.rand(50,20,512)
 
         # encoder
-        e = EncoderOrDecoder(self.config_arch, self.config_train, num_layers=6, take_two_seqs=False, use_mask=False)
+        e = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, use_mask=False)
         with self.assertRaises(ValueError):
             out = e(y, x)
 
         # decoder
-        d = EncoderOrDecoder(self.config_arch, self.config_train, num_layers=6, take_two_seqs=True, use_mask=True)
+        d = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
         with self.assertRaises(ValueError):
             out = d(y)
 
@@ -487,34 +484,34 @@ class TestEncoderOrDecoder(unittest.TestCase):
         y = torch.rand(50,20,512)
 
         # encoder
-        e = EncoderOrDecoder(self.config_arch, self.config_train, num_layers=6, take_two_seqs=False, use_mask=False)
+        e = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, use_mask=False)
         out = e(y)
         self.assertEqual(out.shape, (50,20,512))
 
         # decoder only
-        do = EncoderOrDecoder(self.config_arch, self.config_train, num_layers=6, take_two_seqs=False, use_mask=True)
+        do = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, use_mask=True)
         out = do(y)
         self.assertEqual(out.shape, (50,20,512))
 
         # ???
-        weird = EncoderOrDecoder(self.config_arch, self.config_train, num_layers=6, take_two_seqs=True, use_mask=False)
+        weird = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=False)
         out = weird(y, x)
         self.assertEqual(out.shape, (50,20,512))
 
         # decoder
-        d = EncoderOrDecoder(self.config_arch, self.config_train, num_layers=6, take_two_seqs=True, use_mask=True)
+        d = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
         out = d(y, x)
         self.assertEqual(out.shape, (50,20,512))
 
         # prenorm
-        self.config_arch.pre_norm = True
-        d_pre = EncoderOrDecoder(self.config_arch, self.config_train, num_layers=6, take_two_seqs=True, use_mask=True)
+        self.config.arch.pre_norm = True
+        d_pre = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
         out = d_pre(y, x)
         self.assertEqual(out.shape, (50,20,512))
 
         # postnorm
-        self.config_arch.pre_norm = False
-        d_post = EncoderOrDecoder(self.config_arch, self.config_train, num_layers=6, take_two_seqs=True, use_mask=True)
+        self.config.arch.pre_norm = False
+        d_post = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
         out = d_post(y, x)
         self.assertEqual(out.shape, (50,20,512))
 
@@ -523,29 +520,28 @@ class TestEncoderOrDecoder(unittest.TestCase):
 class TestTransformer(unittest.TestCase):
 
     def setUp(self):
-        self.config_arch = get_config_arch()
-        self.config_train = get_config_train()
+        self.config = read_config("configuration.toml")
 
     def testTwoSeqShape(self):
         x = torch.rand(5,10,1000)
         y = torch.rand(5,20,1000)
 
-        t = TransformerTwoSeq(self.config_arch, self.config_train, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=False, vocab_size=1000, tgt_support_mask=None)
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=False, vocab_size=1000, tgt_support_mask=None)
         out = t(x, y)
         self.assertEqual(out.shape, (5,20,512))
 
-        t = TransformerTwoSeq(self.config_arch, self.config_train, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=True, vocab_size=1000, tgt_support_mask=None)
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=True, vocab_size=1000, tgt_support_mask=None)
         out = t(x, y)
         self.assertEqual(out.shape, (5,20,1000))
 
     def testOneSeqShape(self):
         y = torch.rand(5,20,1000)
 
-        t = TransformerOneSeq(self.config_arch, self.config_train, num_layers=6, use_mask=True, output_probs=False, vocab_size=1000, support_mask=None)
+        t = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=False, vocab_size=1000, support_mask=None)
         out = t(y)
         self.assertEqual(out.shape, (5,20,512))
 
-        t = TransformerOneSeq(self.config_arch, self.config_train, num_layers=6, use_mask=True, output_probs=True, vocab_size=1000, support_mask=None)
+        t = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=True, vocab_size=1000, support_mask=None)
         out = t(y)
         self.assertEqual(out.shape, (5,20,1000))
 
@@ -553,44 +549,44 @@ class TestTransformer(unittest.TestCase):
         x = torch.rand(5,10,1000)
         y = torch.rand(5,20,1000)
 
-        self.config_arch.transformer_type = TransformerType.ENCODER_DECODER
-        t = get_transformer(self.config_arch, self.config_train, vocab_size=1000, tgt_support_mask=None)
+        self.config.arch.transformer_type = TransformerType.ENCODER_DECODER
+        t = get_transformer(self.config, vocab_size=1000, tgt_support_mask=None)
         out = t(x, y)
         self.assertEqual(out.shape, (5,20,1000))
 
     def testEncoderOnlyShape(self):
         x = torch.rand(5,10,1000)
 
-        self.config_arch.transformer_type = TransformerType.ENCODER_ONLY
-        t = get_transformer(self.config_arch, self.config_train, vocab_size=1000, tgt_support_mask=None)
+        self.config.arch.transformer_type = TransformerType.ENCODER_ONLY
+        t = get_transformer(self.config, vocab_size=1000, tgt_support_mask=None)
         out = t(x)
         self.assertEqual(out.shape, (5,10,512))
 
     def testDecoderOnlyShape(self):
         y = torch.rand(5,20,1000)
 
-        self.config_arch.transformer_type = TransformerType.DECODER_ONLY
-        t = get_transformer(self.config_arch, self.config_train, vocab_size=1000, tgt_support_mask=None)
+        self.config.arch.transformer_type = TransformerType.DECODER_ONLY
+        t = get_transformer(self.config, vocab_size=1000, tgt_support_mask=None)
         out = t(y)
         self.assertEqual(out.shape, (5,20,1000))
 
     def testDropout(self):
-        self.config_train.dropout = 1.0
-        self.config_train.ff_dropout = 0.0
-        self.config_train.att_dropout = 0.0
+        self.config.train.dropout = 1.0
+        self.config.train.ff_dropout = 0.0
+        self.config.train.att_dropout = 0.0
 
         x1 = torch.rand(5,10,30)
         x2 = torch.rand(5,10,30)
         y1 = torch.rand(5,20,30)
         y2 = torch.rand(5,20,30)
 
-        t = TransformerTwoSeq(self.config_arch, self.config_train, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=False, vocab_size=30, tgt_support_mask=None)
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=False, vocab_size=30, tgt_support_mask=None)
         t.train()
         out1 = t(x1, y1)
         out2 = t(x2, y2)
         self.assertTrue(torch.equal(out1, out2))
 
-        t = TransformerOneSeq(self.config_arch, self.config_train, num_layers=6, use_mask=True, output_probs=False, vocab_size=30, support_mask=None)
+        t = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=False, vocab_size=30, support_mask=None)
         t.train()
         out1 = t(y1)
         out2 = t(y2)
@@ -601,7 +597,7 @@ class TestTransformer(unittest.TestCase):
         y = torch.rand(4,3,5)
         tgt_support_mask = torch.tensor([1.0, 1.0, 0.0, 1.0, 0.0])
 
-        t = TransformerTwoSeq(self.config_arch, self.config_train, num_enc_layers=6, use_mask_enc=False, num_dec_layers=6, use_mask_dec=True, output_probs=True, vocab_size=5, tgt_support_mask=tgt_support_mask)
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=False, num_dec_layers=6, use_mask_dec=True, output_probs=True, vocab_size=5, tgt_support_mask=tgt_support_mask)
         out = t(x, y)
         self.assertEqual(out.shape, (4,3,5))
         self.assertTrue(out[0,0,0] > float('-inf'))
@@ -610,7 +606,7 @@ class TestTransformer(unittest.TestCase):
         self.assertTrue(out[0,0,3] > float('-inf'))
         self.assertTrue(out[0,0,4] == float('-inf'))
 
-        t = TransformerOneSeq(self.config_arch, self.config_train, num_layers=6, use_mask=True, output_probs=True, vocab_size=5, support_mask=tgt_support_mask)
+        t = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=True, vocab_size=5, support_mask=tgt_support_mask)
         out = t(y)
         self.assertEqual(out.shape, (4,3,5))
         self.assertTrue(out[0,0,0] > float('-inf'))

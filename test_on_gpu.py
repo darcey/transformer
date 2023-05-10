@@ -16,7 +16,7 @@ class TestTrainerSameOnGPU(unittest.TestCase):
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([],[])
         self.assertEqual(self.vocab.tok_to_idx(SpecialTokens.PAD), 0)
-        self.config = get_config_train()
+        self.config = read_config("configuration.toml")
 
     def testWordDropout(self):
         if not torch.cuda.is_available():
@@ -34,7 +34,7 @@ class TestTrainerSameOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        self.config.label_smoothing = 0.5
+        self.config.train.label_smoothing = 0.5
         trainer_cpu = Trainer(self.model, self.vocab, self.config, "cpu")
         trainer_gpu = Trainer(self.model, self.vocab, self.config, "cuda:0")
 
@@ -50,7 +50,7 @@ class TestTrainerSameOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        self.config.label_smoothing = 0.5
+        self.config.train.label_smoothing = 0.5
         trainer_cpu = Trainer(self.model, self.vocab, self.config, "cpu")
         trainer_gpu = Trainer(self.model, self.vocab, self.config, "cuda:0")
 
@@ -68,8 +68,7 @@ class TestTrainerSameOnGPU(unittest.TestCase):
 class TestTransformerSameOnGPU(unittest.TestCase):
 
     def setUp(self):
-        self.config_arch = get_config_arch()
-        self.config_train = get_config_train()
+        self.config = read_config("configuration.toml")
 
     def testEmbedding(self):
         if not torch.cuda.is_available():
@@ -191,43 +190,43 @@ class TestTransformerSameOnGPU(unittest.TestCase):
             return y
         y_cpu = torch.rand(100,20,512)
         y_gpu = y_cpu.to("cuda:0")
-        self.config_train.dropout = 0.0
+        self.config.train.dropout = 0.0
 
         # pre norm, resid
-        self.config_arch.pre_norm = True
-        self.config_arch.use_resid_connection = True
+        self.config.arch.pre_norm = True
+        self.config.arch.use_resid_connection = True
 
-        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc_gpu = copy.deepcopy(slc_cpu).to("cuda:0")
         out_cpu = slc_cpu(y_cpu)
         out_gpu = slc_gpu(y_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
 
         # pre norm, no resid
-        self.config_arch.pre_norm = True
-        self.config_arch.use_resid_connection = False
+        self.config.arch.pre_norm = True
+        self.config.arch.use_resid_connection = False
 
-        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc_gpu = copy.deepcopy(slc_cpu).to("cuda:0")
         out_cpu = slc_cpu(y_cpu)
         out_gpu = slc_gpu(y_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
 
         # post norm, resid
-        self.config_arch.pre_norm = False
-        self.config_arch.use_resid_connection = True
+        self.config.arch.pre_norm = False
+        self.config.arch.use_resid_connection = True
 
-        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc_gpu = copy.deepcopy(slc_cpu).to("cuda:0")
         out_cpu = slc_cpu(y_cpu)
         out_gpu = slc_gpu(y_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
 
         # post norm, no resid
-        self.config_arch.pre_norm = False
-        self.config_arch.use_resid_connection = False
+        self.config.arch.pre_norm = False
+        self.config.arch.use_resid_connection = False
 
-        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config_arch, self.config_train)
+        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
         slc_gpu = copy.deepcopy(slc_cpu).to("cuda:0")
         out_cpu = slc_cpu(y_cpu)
         out_gpu = slc_gpu(y_gpu)
@@ -243,11 +242,11 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         y_gpu = y_cpu.to("cuda:0")
         ymask_cpu = torch.triu(torch.full((20,20), float('-inf')), diagonal=1)
         ymask_gpu = ymask_cpu.to("cuda:0")
-        self.config_train.dropout = 0.0
-        self.config_train.att_dropout = 0.0
-        self.config_train.ff_dropout = 0.0
+        self.config.train.dropout = 0.0
+        self.config.train.att_dropout = 0.0
+        self.config.train.ff_dropout = 0.0
 
-        l_cpu = Layer(self.config_arch, self.config_train, take_two_seqs=True, use_mask=True)
+        l_cpu = Layer(self.config, take_two_seqs=True, use_mask=True)
         l_gpu = copy.deepcopy(l_cpu).to("cuda:0")
         out_cpu = l_cpu(y_cpu, x_cpu, ymask_cpu)
         out_gpu = l_gpu(y_gpu, x_gpu, ymask_gpu)
@@ -261,12 +260,12 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         x_gpu = x_cpu.to("cuda:0")
         y_cpu = torch.rand(100,20,512)
         y_gpu = y_cpu.to("cuda:0")
-        self.config_train.dropout = 0.0
-        self.config_train.att_dropout = 0.0
-        self.config_train.ff_dropout = 0.0
+        self.config.train.dropout = 0.0
+        self.config.train.att_dropout = 0.0
+        self.config.train.ff_dropout = 0.0
 
         # decoder
-        eod_cpu = EncoderOrDecoder(self.config_arch, self.config_train, num_layers=6, take_two_seqs=True, use_mask=True)
+        eod_cpu = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
         eod_gpu = copy.deepcopy(eod_cpu).to("cuda:0")
         out_cpu = eod_cpu(y_cpu, x_cpu)
         out_gpu = eod_gpu(y_gpu, x_gpu)
@@ -280,11 +279,11 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         x_gpu = x_cpu.to("cuda:0")
         y_cpu = torch.rand(5,20,1000)
         y_gpu = y_cpu.to("cuda:0")
-        self.config_train.dropout = 0.0
-        self.config_train.att_dropout = 0.0
-        self.config_train.ff_dropout = 0.0
+        self.config.train.dropout = 0.0
+        self.config.train.att_dropout = 0.0
+        self.config.train.ff_dropout = 0.0
 
-        t_cpu = TransformerTwoSeq(self.config_arch, self.config_train, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=True, vocab_size=1000, tgt_support_mask=None)
+        t_cpu = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=True, vocab_size=1000, tgt_support_mask=None)
         t_gpu = copy.deepcopy(t_cpu).to("cuda:0")
         out_cpu = t_cpu(y_cpu, x_cpu)
         out_gpu = t_gpu(y_gpu, x_gpu)
@@ -296,11 +295,11 @@ class TestTransformerSameOnGPU(unittest.TestCase):
 
         y_cpu = torch.rand(5,20,1000)
         y_gpu = y_cpu.to("cuda:0")
-        self.config_train.dropout = 0.0
-        self.config_train.att_dropout = 0.0
-        self.config_train.ff_dropout = 0.0
+        self.config.train.dropout = 0.0
+        self.config.train.att_dropout = 0.0
+        self.config.train.ff_dropout = 0.0
 
-        t_cpu = TransformerOneSeq(self.config_arch, self.config_train, num_layers=6, use_mask=True, output_probs=True, vocab_size=1000, support_mask=None)
+        t_cpu = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=True, vocab_size=1000, support_mask=None)
         t_gpu = copy.deepcopy(t_cpu).to("cuda:0")
         out_cpu = t_cpu(y_cpu)
         out_gpu = t_gpu(y_gpu)

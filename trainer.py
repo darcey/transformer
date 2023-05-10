@@ -11,29 +11,29 @@ import torch
 
 class Trainer():
 
-    def __init__(self, model, vocab, config_train, device):
+    def __init__(self, model, vocab, config, device):
         self.vocab = vocab
         self.model = model
         self.optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
-        self.max_epochs = config_train.max_epochs
-        self.epoch_size = config_train.epoch_size
+        self.max_epochs = config.train.max_epochs
+        self.epoch_size = config.train.epoch_size
         self.num_epochs = 0
         self.num_steps = 0
         self.num_toks = 0
 
         self.support_mask = vocab.get_tgt_support_mask()
 
-        self.label_smoothing = config_train.label_smoothing
+        self.label_smoothing = config.train.label_smoothing
         ls_mask = vocab.get_tgt_support_mask().type(torch.float)
-        if not config_train.label_smooth_eos:
+        if not config.train.label_smooth_eos:
             ls_mask[vocab.eos_idx()] = 0.0
-        if not config_train.label_smooth_unk:
+        if not config.train.label_smooth_unk:
             ls_mask[vocab.unk_idx()] = 0.0
         ls_counts = ls_mask / torch.sum(ls_mask)
         self.label_smoothing_counts = ls_counts
 
-        self.word_dropout_prob = config_train.word_dropout
+        self.word_dropout_prob = config.train.word_dropout
 
         self.device = device
         self.model.to(device)

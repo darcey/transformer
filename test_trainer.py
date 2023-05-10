@@ -28,7 +28,7 @@ class TestInit(unittest.TestCase):
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data(fake_src, fake_tgt)
         self.model = MockModel(len(self.vocab))
-        self.config = get_config_train()
+        self.config = read_config("configuration.toml")
         self.device = "cpu"
 
     def testLabelSmoothingMaskSubsetOfSupport(self):
@@ -38,16 +38,16 @@ class TestInit(unittest.TestCase):
                 self.assertEqual(trainer.label_smoothing_counts[i], 0.0)
 
     def testLabelSmoothingCounts(self):
-        self.config.label_smooth_eos = True
-        self.config.label_smooth_unk = True
+        self.config.train.label_smooth_eos = True
+        self.config.train.label_smooth_unk = True
         trainer = Trainer(self.model, self.vocab, self.config, self.device)
         ls_counts = trainer.label_smoothing_counts
         self.assertEqual(ls_counts[self.vocab.tok_to_idx("the")], 1.0/7.0)
         self.assertEqual(ls_counts[self.vocab.tok_to_idx(SpecialTokens.EOS)], 1.0/7.0)
         self.assertEqual(ls_counts[self.vocab.tok_to_idx(SpecialTokens.UNK)], 1.0/7.0)
 
-        self.config.label_smooth_eos = False
-        self.config.label_smooth_unk = False
+        self.config.train.label_smooth_eos = False
+        self.config.train.label_smooth_unk = False
         trainer = Trainer(self.model, self.vocab, self.config, self.device)
         ls_counts = trainer.label_smoothing_counts
         self.assertEqual(ls_counts[self.vocab.tok_to_idx("the")], 1.0/5.0)
@@ -60,7 +60,7 @@ class TestTrainOneStep(unittest.TestCase):
 
     def testParamsUpdate(self):
         device = "cpu"
-        config = get_config_train()
+        config = read_config("configuration.toml")
         vocab = Vocabulary()
         vocab.initialize_from_data([],[])
         l = len(vocab)
@@ -84,7 +84,7 @@ class TestPerplexity(unittest.TestCase):
 
     def setUp(self):
         self.device = "cpu"
-        self.config = get_config_train()
+        self.config = read_config("configuration.toml")
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
 
@@ -144,7 +144,7 @@ class TestPrepBatch(unittest.TestCase):
         self.model = torch.nn.Linear(10,10)
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
-        self.config = get_config_train()
+        self.config = read_config("configuration.toml")
         self.device = "cpu"
         self.trainer = Trainer(self.model, self.vocab, self.config, self.device)
 
@@ -177,7 +177,7 @@ class TestWordDropout(unittest.TestCase):
 
     def setUp(self):
         self.device = "cpu"
-        self.config = get_config_train()
+        self.config = read_config("configuration.toml")
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([],[])
         l = len(self.vocab)
@@ -205,7 +205,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([],[])
         self.assertEqual(self.vocab.tok_to_idx(SpecialTokens.PAD), 0)
-        self.config = get_config_train()
+        self.config = read_config("configuration.toml")
         self.device = "cpu"
 
     def testShape(self):

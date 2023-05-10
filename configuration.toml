@@ -1,0 +1,49 @@
+[architecture]
+# Major architectural options
+transformer_type       = "Encoder_Decoder"  # TransformerType enum
+num_encoder_layers     = 6
+num_decoder_layers     = 6
+d_model                = 512
+# These ones are only relevant if using a custom transformer architecture
+output_probs           = true
+use_masked_att_encoder = false
+use_masked_att_decoder = true
+
+# Layer options
+use_resid_connection   = true
+pre_norm               = true
+
+# Attention options
+num_attention_heads    = 8
+
+# Feed-forward options
+d_ff                   = 2048
+    
+# Positional encoding options
+pos_enc_type           = "Sinusoidal"  # PositionalEncodingType enum
+context_window_length  = 512
+
+# Normalization options
+norm_type              = "Scale_Norm"  # NormType enum
+layer_norm_epsilon     = 1e-5
+    
+# Embedding options
+fix_norm               = true
+
+
+[training]
+# Length of training
+max_epochs             = 200
+epoch_size             = 1000
+batch_size             = 4096
+
+# Dropout options
+dropout                = 0.3
+att_dropout            = 0.3
+ff_dropout             = 0.3
+word_dropout           = 0.1
+
+# Label smoothing
+label_smoothing        = 0.1
+label_smooth_eos       = true
+label_smooth_unk       = true

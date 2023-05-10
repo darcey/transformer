@@ -1,5 +1,6 @@
 from enum import Enum
 from argparse import Namespace
+import toml
 
 # Allows the three standard transformer configurations (Encoder-Decoder, 
 # Encoder only, Decoder only) as well as two "Custom" configurations that
@@ -19,74 +20,33 @@ from argparse import Namespace
 #   decoder: takes one sequence,  [use_masked_att_decoder],  [output_probs]
 
 class TransformerType(Enum):
-    ENCODER_DECODER = 1
-    ENCODER_ONLY = 2
-    DECODER_ONLY = 3
-    CUSTOM_TWO_SEQ = 4
-    CUSTOM_ONE_SEQ = 5
+    ENCODER_DECODER = "Encoder_Decoder"
+    ENCODER_ONLY = "Encoder_Only"
+    DECODER_ONLY = "Decoder_Only"
+    CUSTOM_TWO_SEQ = "Custom_Two_Seq"
+    CUSTOM_ONE_SEQ = "Custom_One_Seq"
 
 class PositionalEncodingType(Enum):
-    NONE = 0
-    SINUSOIDAL = 1
+    NONE = "None"
+    SINUSOIDAL = "Sinusoidal"
 
 class NormType(Enum):
-    NONE = 0
-    LAYER_NORM = 1
-    SCALE_NORM = 2
+    NONE = "None"
+    LAYER_NORM = "Layer_Norm"
+    SCALE_NORM = "Scale_Norm"
 
-def get_config_arch():
-    config_arch = dict()
+def read_config(filename):
+    with open(filename) as config_file:
+        config_dict = toml.load(config_file)
 
-    # Major architectural options
-    config_arch["transformer_type"]       = TransformerType.ENCODER_DECODER
-    config_arch["num_encoder_layers"]     = 6
-    config_arch["num_decoder_layers"]     = 6
-    config_arch["d_model"]                = 512
-    # These options are only relevant if TransformerType is CUSTOM*
-    config_arch["output_probs"]           = True
-    config_arch["use_masked_att_encoder"] = False
-    config_arch["use_masked_att_decoder"] = True
+    config_arch = Namespace(**config_dict["architecture"])
+    config_arch.transformer_type = TransformerType(config_arch.transformer_type)
+    config_arch.pos_enc_type = PositionalEncodingType(config_arch.pos_enc_type)
+    config_arch.norm_type = NormType(config_arch.norm_type)
 
-    # Layer options
-    config_arch["use_resid_connection"]   = True
-    config_arch["pre_norm"]               = True
-
-    # Attention options
-    config_arch["num_attention_heads"]    = 8
-
-    # Feed-forward options
-    config_arch["d_ff"]                   = 2048
+    config_train = Namespace(**config_dict["training"])
     
-    # Positional encoding options
-    config_arch["pos_enc_type"]           = PositionalEncodingType.SINUSOIDAL
-    config_arch["context_window_length"]  = 512
-
-    # Normalization options
-    config_arch["norm_type"]              = NormType.SCALE_NORM
-    config_arch["layer_norm_epsilon"]     = 1e-5
-    
-    # Embedding options
-    config_arch["fix_norm"]               = True
-
-    return Namespace(**config_arch)
-
-def get_config_train():
-    config_train = dict()
-
-    # Length of training
-    config_train["max_epochs"]       = 200
-    config_train["epoch_size"]       = 1000
-    config_train["batch_size"]       = 4096
-
-    # Dropout options
-    config_train["dropout"]          = 0.3
-    config_train["att_dropout"]      = 0.3
-    config_train["ff_dropout"]       = 0.3
-    config_train["word_dropout"]     = 0.1
-
-    # Label smoothing
-    config_train["label_smoothing"]  = 0.1
-    config_train["label_smooth_eos"] = True
-    config_train["label_smooth_unk"] = True
-
-    return Namespace(**config_train)
+    config = Namespace()
+    config.arch = config_arch
+    config.train = config_train
+    return config
