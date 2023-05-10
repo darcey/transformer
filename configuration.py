@@ -36,7 +36,6 @@ class NormType(Enum):
     SCALE_NORM = "Scale_Norm"
 
 class LearningRateStrategy(Enum):
-    NONE = "None"
     WARMUP_INV_SQRT_DECAY = "Warmup_InvSqrtDecay"
     WARMUP_VAL_DECAY = "Warmup_ValDecay"
     NO_WARMUP_VAL_DECAY = "NoWarmup_ValDecay"

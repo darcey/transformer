@@ -1,5 +1,6 @@
 # TODO(darcey): compute dev BLEU
 
+# TODO(darcey): implement null learning rate schedule
 # TODO(darcey): improve how the support mask is handled, so that the logic around it, and the connection to the label smoothing counts, is less confusing (see tests for loss)
 # TODO(darcey): right now prep_batch is run identically every time we evaluate on the dev data; do it just once for dev data
 # TODO(darcey): consider moving the label smoothing initialization stuff into its own function for modularity
@@ -65,11 +66,10 @@ class Trainer():
                 batch = train.get_batch()
                 self.num_toks += batch["num_tgt_toks"]
                 src, tgt_in, tgt_out = self.prep_batch(batch, do_dropout=True)
-                self.num_toks += batch
                 # do one step of training
                 self.train_one_step(src, tgt_in, tgt_out)
                 # adjust learning rate
-                self.lr = self.adjust_learning_rate_step()
+                self.adjust_learning_rate_step()
 
             # evaluate dev perplexity
             # TODO(darcey): evaluate dev BLEU
@@ -79,7 +79,7 @@ class Trainer():
             print("--------------------------------")
             # save checkpoints as needed
             # adjust learning rate
-            self.lr = self.adjust_learning_rate_epoch()
+            self.adjust_learning_rate_epoch()
 
     def train_one_step(self, src, tgt_in, tgt_out):
         self.optimizer.zero_grad()
