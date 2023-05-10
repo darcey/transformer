@@ -1,4 +1,3 @@
-# TODO(darcey): finish reading Toan's paper for additional insights
 # TODO(darcey): compute dev BLEU
 
 # TODO(darcey): improve how the support mask is handled, so that the logic around it, and the connection to the label smoothing counts, is less confusing (see tests for loss)
@@ -7,20 +6,27 @@
 # TODO(darcey): improve torch efficiency throughout codebase (switch from reshape to view? bmm vs. matmul? stop using one-hots where possible?)
 # TODO(darcey): implement classifier learning also
 
+import math
 import torch
+from configuration import *
 
 class Trainer():
 
     def __init__(self, model, vocab, config, device):
         self.vocab = vocab
         self.model = model
-        self.optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+
+        self.lr_config = config.train.lr
+        self.lr_config.d_model = config.arch.d_model
+        self.lr = self.get_initial_learning_rate()
+        self.optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         self.max_epochs = config.train.max_epochs
         self.epoch_size = config.train.epoch_size
-        self.num_epochs = 0
-        self.num_steps = 0
         self.num_toks = 0
+        self.num_steps = 0
+        self.num_epochs = 0
+        self.dev_ppls = []
 
         self.support_mask = vocab.get_tgt_support_mask()
 
@@ -47,26 +53,33 @@ class Trainer():
         print("DEV PPL: " + str(dev_ppl))
         print("--------------------------------")
         for epoch in range(self.max_epochs):
+            self.num_epochs += 1
+            # early stopping
+            if self.early_stopping():
+                break
+
+            # train for one epoch
             for step in range(self.epoch_size):
+                self.num_steps += 1
                 # prepare the batch
                 batch = train.get_batch()
+                self.num_toks += batch["num_tgt_toks"]
                 src, tgt_in, tgt_out = self.prep_batch(batch, do_dropout=True)
-
+                self.num_toks += batch
                 # do one step of training
                 self.train_one_step(src, tgt_in, tgt_out)
-
-                # update training statistics
-                self.num_steps += 1
-                self.num_toks += batch["num_tgt_toks"]
+                # adjust learning rate
+                self.lr = self.adjust_learning_rate_step()
 
             # evaluate dev perplexity
+            # TODO(darcey): evaluate dev BLEU
             dev_ppl = self.perplexity(dev)
+            self.dev_ppls.append(dev_ppl)
             print("DEV PPL: " + str(dev_ppl))
             print("--------------------------------")
-            # TODO(darcey): evaluate dev BLEU
             # save checkpoints as needed
-            # adjust learning rate / early stopping
-            self.num_epochs += 1
+            # adjust learning rate
+            self.lr = self.adjust_learning_rate_epoch()
 
     def train_one_step(self, src, tgt_in, tgt_out):
         self.optimizer.zero_grad()
@@ -96,6 +109,57 @@ class Trainer():
             perplexity = torch.exp(cross_ent_total / num_toks_total).item()
         self.model.train()
         return perplexity
+
+    def get_initial_learning_rate(self):
+        conf = self.lr_config
+        # For warmup-based strategies, start at the low rate, then warm up
+        if (conf.lr_strategy == LearningRateStrategy.WARMUP_INV_SQRT_DECAY or\
+            conf.lr_strategy == LearningRateStrategy.WARMUP_VAL_DECAY):
+            return conf.lr_scale * (conf.d_model ** -0.5) * (conf.warmup_steps ** -1.5)
+        # For non-warmup-based strategies, start at user-specified rate
+        else:
+            return conf.start_lr
+
+    def adjust_learning_rate_step(self):
+        conf = self.lr_config
+        steps = self.num_steps + 1
+        # For warmup-based strategies, if during warmup, do warmup
+        if (conf.lr_strategy == LearningRateStrategy.WARMUP_INV_SQRT_DECAY or\
+            conf.lr_strategy == LearningRateStrategy.WARMUP_VAL_DECAY) and\
+           (steps < conf.warmup_steps):
+            self.lr = conf.lr_scale * (conf.d_model ** -0.5) * steps * (conf.warmup_steps ** -1.5)
+        # For inverse square root decay, if not during warmup, do decay
+        elif conf.lr_strategy == LearningRateStrategy.WARMUP_INV_SQRT_DECAY:
+            self.lr = conf.lr_scale * (conf.d_model ** -0.5) * (steps ** -0.5)
+        else:
+            return
+
+        for g in self.optimizer.param_groups:
+            g['lr'] = self.lr
+
+    def adjust_learning_rate_epoch(self):
+        conf = self.lr_config
+        steps = self.num_steps + 1
+        # For validation-based decay, if not during warmup, do decay
+        if (conf.lr_strategy == LearningRateStrategy.NO_WARMUP_VAL_DECAY) or\
+           (conf.lr_strategy == LearningRateStrategy.WARMUP_VAL_DECAY and\
+            steps >= conf.warmup_steps):
+            if (self.num_epochs > conf.patience) and\
+               (self.dev_ppls[-1] > max(self.dev_ppls[-1-conf.patience:-1])):
+                self.lr = self.lr * conf.lr_decay
+                for g in self.optimizer.param_groups:
+                    g['lr'] = self.lr
+
+    def early_stopping(self):
+        conf = self.lr_config
+        steps = self.num_steps + 1
+        # For validation-based decay, if not during warmup, check whether to stop
+        if (conf.lr_strategy == LearningRateStrategy.NO_WARMUP_VAL_DECAY) or\
+           (conf.lr_strategy == LearningRateStrategy.WARMUP_VAL_DECAY and\
+            steps >= conf.warmup_steps):
+            return self.lr < conf.stop_lr
+        else:
+            return False
 
     def prep_batch(self, batch, do_dropout=False):
         # get relevant info from batch

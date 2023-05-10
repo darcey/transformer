@@ -35,6 +35,12 @@ class NormType(Enum):
     LAYER_NORM = "Layer_Norm"
     SCALE_NORM = "Scale_Norm"
 
+class LearningRateStrategy(Enum):
+    NONE = "None"
+    WARMUP_INV_SQRT_DECAY = "Warmup_InvSqrtDecay"
+    WARMUP_VAL_DECAY = "Warmup_ValDecay"
+    NO_WARMUP_VAL_DECAY = "NoWarmup_ValDecay"
+
 def read_config(filename):
     with open(filename) as config_file:
         config_dict = toml.load(config_file)
@@ -45,6 +51,9 @@ def read_config(filename):
     config_arch.norm_type = NormType(config_arch.norm_type)
 
     config_train = Namespace(**config_dict["training"])
+    config_train_lr = Namespace(**config_dict["training"]["lr"])
+    config_train_lr.lr_strategy = LearningRateStrategy(config_train_lr.lr_strategy)
+    config_train.lr = config_train_lr
     
     config = Namespace()
     config.arch = config_arch

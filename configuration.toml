@@ -37,6 +37,18 @@ max_epochs             = 200
 epoch_size             = 1000
 batch_size             = 4096
 
+# Learning rate
+lr.lr_strategy         = "NoWarmup_ValDecay"
+# Used by Warmup_*
+lr.lr_scale            = 1.0
+lr.warmup_steps        = 4000
+# Used by *_ValDecay
+lr.lr_decay            = 0.8
+lr.patience            = 3
+lr.stop_lr             = 5e-5
+# Used by NoWarmup_ValDecay
+lr.start_lr            = 3e-4
+
 # Dropout options
 dropout                = 0.3
 att_dropout            = 0.3
