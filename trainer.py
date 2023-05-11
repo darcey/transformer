@@ -1,19 +1,19 @@
 # TODO(darcey): compute dev BLEU
 
 # TODO(darcey): implement null learning rate schedule
-# TODO(darcey): improve how the support mask is handled, so that the logic around it, and the connection to the label smoothing counts, is less confusing (see tests for loss)
-# TODO(darcey): right now prep_batch is run identically every time we evaluate on the dev data; do it just once for dev data
-# TODO(darcey): consider moving the label smoothing initialization stuff into its own function for modularity
 # TODO(darcey): improve torch efficiency throughout codebase (switch from reshape to view? bmm vs. matmul?)
 # TODO(darcey): implement classifier learning also
 
+import os
 import math
 import torch
 from configuration import *
 
 class Trainer():
 
-    def __init__(self, model, vocab, config, device):
+    def __init__(self, model, vocab, config, checkpoint_dir, device):
+        self.checkpoint_dir = checkpoint_dir
+
         self.vocab = vocab
         self.model = model
 
@@ -30,9 +30,8 @@ class Trainer():
         self.dev_ppls = []
 
         self.support_mask = vocab.get_tgt_support_mask()
-
         self.label_smoothing = config.train.label_smoothing
-        ls_mask = vocab.get_tgt_support_mask().type(torch.float)
+        ls_mask = self.support_mask.type(torch.float)
         if not config.train.label_smooth_eos:
             ls_mask[vocab.eos_idx()] = 0.0
         if not config.train.label_smooth_unk:
@@ -50,11 +49,18 @@ class Trainer():
         return
 
     def train(self, train, dev):
+        # check what dev perplexity is before starting
         dev_ppl = self.perplexity(dev)
-        print("DEV PPL: " + str(dev_ppl))
-        print("--------------------------------")
+        self.dev_ppls.append(dev_ppl)
+        print(f"EPOCH {self.num_epochs:{len(str(self.max_epochs))}}\tDEV PPL: {dev_ppl}")
+
+        # save initial weights, why not
+        self.maybe_save_checkpoint()
+
+        # do epochs
         for epoch in range(self.max_epochs):
             self.num_epochs += 1
+
             # early stopping
             if self.early_stopping():
                 break
@@ -62,12 +68,21 @@ class Trainer():
             # train for one epoch
             for step in range(self.epoch_size):
                 self.num_steps += 1
-                # prepare the batch
+
+                # get the batch
                 batch = train.get_batch()
                 self.num_toks += batch["num_tgt_toks"]
-                src, tgt_in, tgt_out = self.prep_batch(batch, do_dropout=True)
+                src = batch["src"].to(self.device)
+                tgt_in = batch["tgt_in"].to(self.device)
+                tgt_out = batch["tgt_out"].to(self.device)
+
+                # word dropout
+                src = self.word_dropout(src, self.word_dropout_prob)
+                tgt_in = self.word_dropout(tgt_in, self.word_dropout_prob)
+
                 # do one step of training
                 self.train_one_step(src, tgt_in, tgt_out)
+
                 # adjust learning rate
                 self.adjust_learning_rate_step()
 
@@ -75,17 +90,21 @@ class Trainer():
             # TODO(darcey): evaluate dev BLEU
             dev_ppl = self.perplexity(dev)
             self.dev_ppls.append(dev_ppl)
-            print("DEV PPL: " + str(dev_ppl))
-            print("--------------------------------")
-            # save checkpoints as needed
+            print(f"EPOCH {self.num_epochs:{len(str(self.max_epochs))}}\tDEV PPL: {dev_ppl}")
+
+            # save checkpoint as needed
+            self.maybe_save_checkpoint()
+
             # adjust learning rate
             self.adjust_learning_rate_epoch()
+
+        # save the final model state
+        self.save_final_checkpoint()
 
     def train_one_step(self, src, tgt_in, tgt_out):
         self.optimizer.zero_grad()
         log_probs = self.model(src, tgt_in)
         loss = self.loss(log_probs, tgt_out)
-        print(loss)
         loss.backward()
         self.optimizer.step()
 
@@ -95,9 +114,11 @@ class Trainer():
             cross_ent_total = 0.0
             num_toks_total = 0
             for batch_num in range(len(data)):
-                # prepare the batch
+                # get the batch
                 batch = data.get_batch()
-                src, tgt_in, tgt_out = self.prep_batch(batch, do_dropout=False)
+                src = batch["src"].to(self.device)
+                tgt_in = batch["tgt_in"].to(self.device)
+                tgt_out = batch["tgt_out"].to(self.device)
 
                 # get the log probability of the batch
                 log_probs = self.model(src, tgt_in)
@@ -109,6 +130,18 @@ class Trainer():
             perplexity = torch.exp(cross_ent_total / num_toks_total).item()
         self.model.train()
         return perplexity
+
+    def maybe_save_checkpoint(self):
+        if self.dev_ppls[-1] == min(self.dev_ppls):
+
+            filename = f"model.{self.num_epochs:0{len(str(self.max_epochs))}d}:{self.dev_ppls[-1]}"
+            filepath = os.path.join(self.checkpoint_dir, filename)
+            torch.save(self.model.state_dict(), filepath)
+
+    def save_final_checkpoint(self):
+        filename = f"model.final:{self.dev_ppls[-1]}"
+        filepath = os.path.join(self.checkpoint_dir, filename)
+        torch.save(self.model.state_dict(), filepath)
 
     def get_initial_learning_rate(self):
         conf = self.lr_config
@@ -160,22 +193,6 @@ class Trainer():
             return self.lr < conf.stop_lr
         else:
             return False
-
-    # src:     [batch, src_seq]
-    # tgt_in:  [batch, tgt_seq]
-    # tgt_out: [batch, tgt_seq]
-    def prep_batch(self, batch, do_dropout=False):
-        # get relevant info from batch
-        src = batch["src"].to(self.device)
-        tgt_in = batch["tgt_in"].to(self.device)
-        tgt_out = batch["tgt_out"].to(self.device)
-
-        # word dropout
-        if do_dropout:
-            src = self.word_dropout(src, self.word_dropout_prob)
-            tgt_in = self.word_dropout(tgt_in, self.word_dropout_prob)
-
-        return src, tgt_in, tgt_out
 
     # data: [batch, seq]
     def word_dropout(self, data, dropout):

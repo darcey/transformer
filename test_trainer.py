@@ -1,9 +1,10 @@
 # TODO(darcey): make better mocks, and organize the mocks better
 
+import copy
 import torch
 import torch.testing
 import unittest
-import copy
+from tempfile import TemporaryDirectory
 from configuration import *
 from vocabulary import *
 from trainer import *
@@ -34,10 +35,14 @@ class TestInit(unittest.TestCase):
         self.vocab.initialize_from_data(fake_src, fake_tgt)
         self.model = MockModel(len(self.vocab))
         self.config = read_config("configuration.toml")
+        self.checkpt_dir = TemporaryDirectory()
         self.device = "cpu"
 
+    def tearDown(self):
+        self.checkpt_dir.cleanup()
+
     def testLabelSmoothingMaskSubsetOfSupport(self):
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         for i in range(len(self.vocab)):
             if not trainer.support_mask[i]:
                 self.assertEqual(trainer.label_smoothing_counts[i], 0.0)
@@ -45,7 +50,7 @@ class TestInit(unittest.TestCase):
     def testLabelSmoothingCounts(self):
         self.config.train.label_smooth_eos = True
         self.config.train.label_smooth_unk = True
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         ls_counts = trainer.label_smoothing_counts
         self.assertEqual(ls_counts[self.vocab.tok_to_idx("the")], 1.0/7.0)
         self.assertEqual(ls_counts[self.vocab.tok_to_idx(SpecialTokens.EOS)], 1.0/7.0)
@@ -53,7 +58,7 @@ class TestInit(unittest.TestCase):
 
         self.config.train.label_smooth_eos = False
         self.config.train.label_smooth_unk = False
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         ls_counts = trainer.label_smoothing_counts
         self.assertEqual(ls_counts[self.vocab.tok_to_idx("the")], 1.0/5.0)
         self.assertEqual(ls_counts[self.vocab.tok_to_idx(SpecialTokens.EOS)], 0.0)
@@ -65,6 +70,7 @@ class TestTrainOneStep(unittest.TestCase):
 
     def testParamsUpdate(self):
         device = "cpu"
+        checkpt_dir = TemporaryDirectory()
         config = read_config("configuration.toml")
         vocab = Vocabulary()
         vocab.initialize_from_data([],[])
@@ -76,19 +82,21 @@ class TestTrainOneStep(unittest.TestCase):
         inputs2 = torch.randint(high=l, size=(2,5))
         targets = torch.randint(high=l, size=(2,5))
 
-        trainer = Trainer(model, vocab, config, device)
+        trainer = Trainer(model, vocab, config, checkpt_dir.name, device)
         trainer.train_one_step(inputs1, inputs2, targets)
 
         old_params = {name:param for name, param in model_old.named_parameters()}
         for name, param in model.named_parameters():
             self.assertFalse(torch.equal(param, old_params[name]))
 
+        checkpt_dir.cleanup()
 
 
 class TestPerplexity(unittest.TestCase):
 
     def setUp(self):
         self.device = "cpu"
+        self.checkpt_dir = TemporaryDirectory()
         self.config = read_config("configuration.toml")
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
@@ -127,6 +135,9 @@ class TestPerplexity(unittest.TestCase):
                 self.use_batch_1 = not self.use_batch_1
         self.data = MockData(self.vocab)
 
+    def tearDown(self):
+        self.checkpt_dir.cleanup()
+
     def testPerfect(self):
         class MockModelIdentity(torch.nn.Module):
             def __init__(self):
@@ -137,7 +148,7 @@ class TestPerplexity(unittest.TestCase):
                 in2 = torch.nn.functional.one_hot(in2, 16).type(torch.float)
                 return self.eye(in2)
         self.model = MockModelIdentity()
-        self.trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        self.trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
 
         ppl = self.trainer.perplexity(self.data)
         self.assertEqual(ppl, 1.0)
@@ -151,14 +162,18 @@ class TestLearningRate(unittest.TestCase):
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([],[])
         self.config = read_config("configuration.toml")
+        self.checkpt_dir = TemporaryDirectory()
         self.device = "cpu"
+
+    def tearDown(self):
+        self.checkpt_dir.cleanup()
 
     def testWarmupInvSqrtDecay(self):
         self.config.train.lr.lr_strategy = LearningRateStrategy.WARMUP_INV_SQRT_DECAY
         self.config.train.lr.lr_scale = 2
         self.config.train.lr.warmup_steps = 4
         self.config.arch.d_model = 256
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
 
         # Sets init rate correctly?
         start_lr = trainer.get_initial_learning_rate()
@@ -205,7 +220,7 @@ class TestLearningRate(unittest.TestCase):
         self.config.arch.d_model = 256
         self.config.train.lr.patience = 3
         self.config.train.lr.lr_decay = 0.5
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
 
         # Sets init rate correctly?
         start_lr = trainer.get_initial_learning_rate()
@@ -282,7 +297,7 @@ class TestLearningRate(unittest.TestCase):
         self.config.train.lr.patience = 3
         self.config.train.lr.lr_decay = 0.5
         self.config.train.lr.start_lr = 0.1
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
 
         # Sets init rate correctly? (Not based on warmup)
         start_lr = trainer.get_initial_learning_rate()
@@ -344,54 +359,20 @@ class TestLearningRate(unittest.TestCase):
 
 
 
-class TestPrepBatch(unittest.TestCase):
-
-    def setUp(self):
-        self.model = torch.nn.Linear(10,10)
-        self.vocab = Vocabulary()
-        self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
-        self.config = read_config("configuration.toml")
-        self.device = "cpu"
-        self.trainer = Trainer(self.model, self.vocab, self.config, self.device)
-
-        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
-        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
-        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
-        src = torch.tensor([[5,6,7,8,EOS,PAD],
-                            [5,6,7,8,9,EOS]])
-        tgt_in = torch.tensor([[BOS,10,11,12,13,14,15],
-                               [BOS,10,11,12,13,PAD,PAD]])
-        tgt_out = torch.tensor([[10,11,12,13,14,15,EOS],
-                                [10,11,12,13,EOS,PAD,PAD]])
-        self.batch = {
-            "src": src,
-            "tgt_in": tgt_in,
-            "tgt_out": tgt_out,
-            "num_src_toks": 11,
-            "num_tgt_toks": 12,
-        }
-
-    def testShape(self):
-        src, tgt_in, tgt_out = self.trainer.prep_batch(self.batch, do_dropout=False)
-        self.assertEqual(src.shape, (2,6))
-        self.assertEqual(tgt_in.shape, (2,7))
-        self.assertEqual(tgt_out.shape, (2,7))
-        self.assertTrue((src >= 0).all() and (src < 16).all())
-        self.assertTrue((tgt_in >= 0).all() and (tgt_in < 16).all())
-        self.assertTrue((tgt_out >= 0).all() and (tgt_out < 16).all())
-
-
-
 class TestWordDropout(unittest.TestCase):
 
     def setUp(self):
         self.device = "cpu"
+        self.checkpt_dir = TemporaryDirectory()
         self.config = read_config("configuration.toml")
         self.vocab = Vocabulary()
         self.vocab.initialize_from_data([],[])
         l = len(self.vocab)
         self.model = torch.nn.Linear(l, l)
-        self.trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        self.trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
+
+    def tearDown(self):
+        self.checkpt_dir.cleanup()
 
     def testWordDropoutNoUnk(self):
         input_tensor = torch.rand(20,10)
@@ -415,10 +396,14 @@ class TestLossAndCrossEnt(unittest.TestCase):
         self.vocab.initialize_from_data([],[])
         self.assertEqual(self.vocab.tok_to_idx(SpecialTokens.PAD), 0)
         self.config = read_config("configuration.toml")
+        self.checkpt_dir = TemporaryDirectory()
         self.device = "cpu"
 
+    def tearDown(self):
+        self.checkpt_dir.cleanup()
+
     def testShape(self):
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
 
         predicted = torch.rand(2, 3, 4)
         gold      = torch.randint(high=4, size=(2, 3))
@@ -429,7 +414,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
         self.assertEqual(loss.shape, ())
 
     def testCrossEntSmoothParamDoesSomething(self):
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         trainer.label_smoothing = 0.5
 
         predicted = torch.rand(2, 3, 4)
@@ -441,7 +426,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # no label smoothing, no PAD, perfect predictions
     def testPerfectPrediction(self):
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
@@ -460,7 +445,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # no label smoothing, no PAD, random predictions
     def testNoLabelSmoothing(self):
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
@@ -473,7 +458,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # no label smoothing, PAD
     def testNoLabelSmoothingPad(self):
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         trainer.label_smoothing = 0
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
@@ -487,7 +472,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # maximum label smoothing, no PAD, no label smoothing mask
     def testMaxLabelSmoothing(self):
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         trainer.label_smoothing = 1
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
@@ -501,7 +486,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # normal loss and label smoothing, no PAD, no mask
     def testInterpolation(self):
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         trainer.label_smoothing = 0.5
         trainer.label_smoothing_counts = torch.ones(4)/4.0
         trainer.support_mask = torch.tensor([True]*4)
@@ -515,7 +500,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # tests label smoothing mask (max label smoothing, no PAD)
     def testLabelSmoothingMask(self):
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         trainer.label_smoothing = 1
         trainer.label_smoothing_counts = torch.tensor([0.0, 0.0, 0.5, 0.5])
         trainer.support_mask = torch.tensor([True]*4)
@@ -529,7 +514,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
     # tests support mask (max label smoothing, no PAD)
     def testSupportMask(self):
-        trainer = Trainer(self.model, self.vocab, self.config, self.device)
+        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
         trainer.label_smoothing = 0.5
         trainer.support_mask = torch.tensor([False, True, True, True])
         trainer.label_smoothing_counts = torch.tensor([0.0, 0.0, 0.0, 1.0])

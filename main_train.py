@@ -1,8 +1,9 @@
 # TODO(darcey): make the generator, pass it into the trainer
 
 # TODO(darcey): consider moving tok-to-idx and unking into dataset creation
-# TODO(darcey): make it possible to resume training from a checkpoint
+# TODO(darcey): make it possible to resume training from a checkpoint (will need to save learning rate details etc. in addition to the checkpoint itself; probably best way to do this is to write out a custom config file representing the current state)
 
+import os
 import argparse
 import torch
 
@@ -40,6 +41,8 @@ def get_parser():
 
     parser.add_argument('--vocab', type=str, required=True,
                         help='File location to write the vocabulary to')
+    parser.add_argument('--checkpoint-dir', type=str, required=True,
+                        help='Directory to save model checkpoints to')
 
     return parser
 
@@ -83,5 +86,7 @@ if __name__ == '__main__':
     
     # make the trainer
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    trainer = Trainer(model, vocab, config, device)
+    if not os.path.exists(args.checkpoint_dir):
+        os.makedirs(args.checkpoint_dir)
+    trainer = Trainer(model, vocab, config, args.checkpoint_dir, device)
     trainer.train(train_batches, dev_batches)

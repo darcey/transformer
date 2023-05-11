@@ -1,7 +1,8 @@
+import copy
 import torch
 import torch.testing
 import unittest
-import copy
+from tempfile import TemporaryDirectory
 from configuration import *
 from trainer import *
 from vocabulary import *
@@ -17,13 +18,17 @@ class TestTrainerSameOnGPU(unittest.TestCase):
         self.vocab.initialize_from_data([],[])
         self.assertEqual(self.vocab.tok_to_idx(SpecialTokens.PAD), 0)
         self.config = read_config("configuration.toml")
+        self.checkpt_dir = TemporaryDirectory()
+
+    def tearDown(self):
+        self.checkpt_dir.cleanup()
 
     def testWordDropout(self):
         if not torch.cuda.is_available():
             return
 
-        trainer_cpu = Trainer(self.model, self.vocab, self.config, "cpu")
-        trainer_gpu = Trainer(self.model, self.vocab, self.config, "cuda:0")
+        trainer_cpu = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, "cpu")
+        trainer_gpu = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, "cuda:0")
         in_cpu = torch.rand(20,10)
         in_gpu = in_cpu.to("cuda:0")
         out_cpu = trainer_cpu.word_dropout(in_cpu, 0.0)
@@ -35,8 +40,8 @@ class TestTrainerSameOnGPU(unittest.TestCase):
             return
 
         self.config.train.label_smoothing = 0.5
-        trainer_cpu = Trainer(self.model, self.vocab, self.config, "cpu")
-        trainer_gpu = Trainer(self.model, self.vocab, self.config, "cuda:0")
+        trainer_cpu = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, "cpu")
+        trainer_gpu = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, "cuda:0")
 
         predicted_cpu = torch.rand(2,3,4)
         predicted_gpu = predicted_cpu.cuda()
@@ -51,8 +56,8 @@ class TestTrainerSameOnGPU(unittest.TestCase):
             return
 
         self.config.train.label_smoothing = 0.5
-        trainer_cpu = Trainer(self.model, self.vocab, self.config, "cpu")
-        trainer_gpu = Trainer(self.model, self.vocab, self.config, "cuda:0")
+        trainer_cpu = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, "cpu")
+        trainer_gpu = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, "cuda:0")
 
         predicted_cpu = torch.rand(2,3,4)
         predicted_gpu = predicted_cpu.cuda()
