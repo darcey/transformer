@@ -40,10 +40,10 @@ class TestTrainerSameOnGPU(unittest.TestCase):
 
         predicted_cpu = torch.rand(2,3,4)
         predicted_gpu = predicted_cpu.cuda()
-        actual_cpu = torch.rand(2,3,4)
-        actual_gpu = actual_cpu.cuda()
-        out_cpu = trainer_cpu.loss(predicted_cpu, actual_cpu)
-        out_gpu = trainer_gpu.loss(predicted_gpu, actual_gpu)
+        gold_cpu = torch.randint(high=4, size=(2,3))
+        gold_gpu = gold_cpu.cuda()
+        out_cpu = trainer_cpu.loss(predicted_cpu, gold_cpu)
+        out_gpu = trainer_gpu.loss(predicted_gpu, gold_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
 
     def testCrossEntropy(self):
@@ -56,10 +56,10 @@ class TestTrainerSameOnGPU(unittest.TestCase):
 
         predicted_cpu = torch.rand(2,3,4)
         predicted_gpu = predicted_cpu.cuda()
-        actual_cpu = torch.rand(2,3,4)
-        actual_gpu = actual_cpu.cuda()
-        ce_cpu, nt_cpu = trainer_cpu.cross_ent(predicted_cpu, actual_cpu)
-        ce_gpu, nt_gpu = trainer_gpu.cross_ent(predicted_gpu, actual_gpu)
+        gold_cpu = torch.randint(high=4, size=(2,3))
+        gold_gpu = gold_cpu.cuda()
+        ce_cpu, nt_cpu = trainer_cpu.cross_ent(predicted_cpu, gold_cpu)
+        ce_gpu, nt_gpu = trainer_gpu.cross_ent(predicted_gpu, gold_gpu)
         torch.testing.assert_close(ce_cpu, ce_gpu.to("cpu"), atol=0.00001, rtol=0)
         torch.testing.assert_close(nt_cpu, nt_gpu.to("cpu"), atol=0.00001, rtol=0)
 
@@ -74,7 +74,7 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
     
-        x = torch.rand(100,40,10)
+        x = torch.randint(high=10,size=(100,40))
         x_emb = torch.rand(100,40,4)
 
         emb_cpu = Embedding(10,4,fix_norm=False)
@@ -275,9 +275,9 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        x_cpu = torch.rand(5,10,1000)
+        x_cpu = torch.randint(high=1000,size=(5,10))
         x_gpu = x_cpu.to("cuda:0")
-        y_cpu = torch.rand(5,20,1000)
+        y_cpu = torch.randint(high=1000,size=(5,20))
         y_gpu = y_cpu.to("cuda:0")
         self.config.train.dropout = 0.0
         self.config.train.att_dropout = 0.0
@@ -293,7 +293,7 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        y_cpu = torch.rand(5,20,1000)
+        y_cpu = torch.randint(high=1000,size=(5,20))
         y_gpu = y_cpu.to("cuda:0")
         self.config.train.dropout = 0.0
         self.config.train.att_dropout = 0.0

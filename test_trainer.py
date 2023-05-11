@@ -1,3 +1,5 @@
+# TODO(darcey): make better mocks, and organize the mocks better
+
 import torch
 import torch.testing
 import unittest
@@ -14,8 +16,11 @@ class MockModel(torch.nn.Module):
         super().__init__()
         self.lin1 = torch.nn.Linear(l,l)
         self.lin2 = torch.nn.Linear(l,l)
+        self.l    = l
 
     def forward(self, in1, in2):
+        in1 = in1.unsqueeze(-1).expand(-1,-1,self.l).type(torch.float)
+        in2 = in2.unsqueeze(-1).expand(-1,-1,self.l).type(torch.float)
         return self.lin1(in1) + self.lin2(in2)
 
 
@@ -67,9 +72,9 @@ class TestTrainOneStep(unittest.TestCase):
 
         model = MockModel(l)
         model_old = copy.deepcopy(model)
-        inputs1 = torch.rand(2,5,l)
-        inputs2 = torch.rand(2,5,l)
-        targets = torch.rand(2,5,l)
+        inputs1 = torch.randint(high=l, size=(2,5))
+        inputs2 = torch.randint(high=l, size=(2,5))
+        targets = torch.randint(high=l, size=(2,5))
 
         trainer = Trainer(model, vocab, config, device)
         trainer.train_one_step(inputs1, inputs2, targets)
@@ -129,6 +134,7 @@ class TestPerplexity(unittest.TestCase):
                 self.eye = torch.nn.Linear(16, 16, bias=False)
                 self.eye.weight = torch.nn.Parameter(torch.eye(16))
             def forward(self, in1, in2):
+                in2 = torch.nn.functional.one_hot(in2, 16).type(torch.float)
                 return self.eye(in2)
         self.model = MockModelIdentity()
         self.trainer = Trainer(self.model, self.vocab, self.config, self.device)
@@ -367,9 +373,12 @@ class TestPrepBatch(unittest.TestCase):
 
     def testShape(self):
         src, tgt_in, tgt_out = self.trainer.prep_batch(self.batch, do_dropout=False)
-        self.assertEqual(src.shape, (2,6,16))
-        self.assertEqual(tgt_in.shape, (2,7,16))
-        self.assertEqual(tgt_out.shape, (2,7,16))
+        self.assertEqual(src.shape, (2,6))
+        self.assertEqual(tgt_in.shape, (2,7))
+        self.assertEqual(tgt_out.shape, (2,7))
+        self.assertTrue((src >= 0).all() and (src < 16).all())
+        self.assertTrue((tgt_in >= 0).all() and (tgt_in < 16).all())
+        self.assertTrue((tgt_out >= 0).all() and (tgt_out < 16).all())
 
 
 
@@ -412,7 +421,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer = Trainer(self.model, self.vocab, self.config, self.device)
 
         predicted = torch.rand(2, 3, 4)
-        gold      = torch.rand(2, 3, 4)
+        gold      = torch.randint(high=4, size=(2, 3))
         c_e, n_t  = trainer.cross_ent(predicted, gold)
         loss      = trainer.loss(predicted, gold)
         self.assertEqual(c_e.shape, ())
@@ -424,7 +433,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer.label_smoothing = 0.5
 
         predicted = torch.rand(2, 3, 4)
-        gold      = torch.rand(2, 3, 4)
+        gold      = torch.randint(high=4, size=(2, 3))
         ce1, nt1  = trainer.cross_ent(predicted, gold, smooth=False)
         ce2, nt2  = trainer.cross_ent(predicted, gold, smooth=True)
         self.assertFalse(torch.equal(ce1, ce2))
@@ -444,8 +453,8 @@ class TestLossAndCrossEnt(unittest.TestCase):
         nh = -100
         predicted = torch.tensor([[[nh, 0, nh, nh], [nh, nh, 0, nh], [nh, nh, nh, 0]],
                                   [[nh, nh, nh, 0], [nh, nh, 0, nh], [nh, 0, nh, nh]]])
-        gold      = torch.tensor([[[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
-                                  [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0]]])
+        gold      = torch.tensor([[1, 2, 3],
+                                  [3, 2, 1]])
         loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor(0.0)))
 
@@ -457,7 +466,7 @@ class TestLossAndCrossEnt(unittest.TestCase):
         trainer.support_mask = torch.tensor([True]*4)
 
         predicted = torch.rand(1, 2, 4)
-        gold    = torch.tensor([[[0,1,0,0], [0,0,1,0]]])
+        gold      = torch.tensor([[1,2]])
         loss      = trainer.loss(predicted, gold)
         correct   = (- predicted[0,0,1] - predicted[0,1,2]) / 2
         self.assertTrue(torch.equal(loss, correct))
@@ -471,8 +480,8 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
         predicted = torch.tensor([[[-1, -3, -3, -3], [-30, -30, -10, -30], [-300, -300, -300, -100]],
                                   [[-3000, -3000, -3000, -1000], [-10000, -30000, -30000, -30000], [-300000, -100000, -300000, -300000]]])
-        gold      = torch.tensor([[[1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
-                                  [[0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0]]])
+        gold      = torch.tensor([[0, 2, 3],
+                                  [3, 0, 1]])
         loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor(101110.0/4.0)))
 
@@ -485,8 +494,8 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
         predicted = torch.tensor([[[-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4],
                                    [-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4]]])
-        gold      = torch.tensor([[[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
-                                  [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0]]])
+        gold      = torch.tensor([[1, 2, 3],
+                                  [3, 2, 1]])
         loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor(2.5)))
 
@@ -499,8 +508,8 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
         predicted = torch.tensor([[[-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4],
                                    [-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4]]])
-        gold      = torch.tensor([[[0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1]],
-                                  [[0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1]]])
+        gold      = torch.tensor([[3, 3, 3],
+                                  [3, 3, 3]])
         loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor((2.5 + 4)/2)))
 
@@ -513,20 +522,22 @@ class TestLossAndCrossEnt(unittest.TestCase):
 
         predicted = torch.tensor([[[-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4],
                                    [-1, -2, -3, -4], [-1, -2, -3, -4], [-1, -2, -3, -4]]])
-        gold      = torch.tensor([[[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
-                                  [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0]]])
+        gold      = torch.tensor([[1, 2, 3],
+                                  [3, 2, 1]])
         loss      = trainer.loss(predicted, gold)
         self.assertTrue(torch.equal(loss, torch.tensor(3.5)))
 
-    # tests support mask (no label smoothing, no PAD)
+    # tests support mask (max label smoothing, no PAD)
     def testSupportMask(self):
         trainer = Trainer(self.model, self.vocab, self.config, self.device)
-        trainer.label_smoothing = 0
-        trainer.support_mask = torch.tensor([True, False, True, True])
+        trainer.label_smoothing = 0.5
+        trainer.support_mask = torch.tensor([False, True, True, True])
+        trainer.label_smoothing_counts = torch.tensor([0.0, 0.0, 0.0, 1.0])
 
-        predicted = torch.tensor([[[-3, -3, -3, -3], [-30, -30, -10, -30], [-300, -300, -300, -100]],
-                                  [[-3000, -3000, -3000, -1000], [-30000, -30000, -30000, -30000], [-300000, -300000, -100000, -300000]]])
-        gold      = torch.tensor([[[0, 1, 0, 0], [0, 1, 1, 0], [0, 1, 0, 1]],
-                                  [[0, 1, 0, 1], [0, 1, 0, 0], [0, 1, 1, 0]]])
+        ni        = float("-inf")
+        predicted = torch.tensor([[[ni, -1, -3, -3], [ni, -30, -10, -30], [ni, -300, -100, -300]],
+                                  [[ni, -3000, -1000, -3000], [ni, -10000, -30000, -30000], [ni, -300000, -100000, -300000]]])
+        gold      = torch.tensor([[1, 2, 2],
+                                  [2, 1, 2]])
         loss      = trainer.loss(predicted, gold)
-        self.assertTrue(torch.equal(loss, torch.tensor(101110.0/6.0)))
+        self.assertTrue(torch.equal(loss, torch.tensor(222222.0/6.0)))

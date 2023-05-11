@@ -1,6 +1,5 @@
 # TODO(darcey): look into methods of initializing the parameters (see Toan's paper, section 2.2)
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
-# TODO(darcey): maybe switch the input to just be indices and not one-hots to save memory?
 # TODO(darcey): consider switching to Brian's clever strategy for src/tgt masking
 
 import math
@@ -24,7 +23,7 @@ class Embedding(torch.nn.Module):
         self.embed_dim_sqrt = math.sqrt(embed_dim)
         self.embedding      = torch.nn.Parameter(torch.rand(vocab_size, embed_dim))
 
-    # seq:  [batch, seq, vocab_size]
+    # seq:  [batch, seq]
     # ret:  [batch, seq, d_model]
     def forward(self, seq, reverse=False):
         if self.fix_norm:
@@ -33,7 +32,7 @@ class Embedding(torch.nn.Module):
             emb_mat = self.embedding
 
         if not reverse:
-            return torch.matmul(seq, emb_mat) * self.embed_dim_sqrt
+            return emb_mat[seq] * self.embed_dim_sqrt
         else:
             return torch.matmul(seq, torch.t(emb_mat))
 
@@ -373,17 +372,17 @@ class TransformerTwoSeq(torch.nn.Module):
                                            take_two_seqs=True,
                                            use_mask=use_mask_dec)
 
-    # src: [batch, src_seq, vocab_size]
-    # tgt: [batch, tgt_seq, vocab_size]
+    # src: [batch, src_seq]
+    # tgt: [batch, tgt_seq]
     # ret: [batch, tgt_seq, vocab_size]
     def forward(self, src, tgt):
         src_embed  = self.embedding(src)
-        src_embed += self.positional(src)
+        src_embed += self.positional(src_embed)
         src_input  = self.dropout(src_embed)
         src_output = self.encoder(src_input)
 
         tgt_embed  = self.embedding(tgt)
-        tgt_embed += self.positional(tgt)
+        tgt_embed += self.positional(tgt_embed)
         tgt_input  = self.dropout(tgt_embed)
         tgt_output = self.decoder(tgt_input, src_output)
         if not self.output_probs:
@@ -414,11 +413,11 @@ class TransformerOneSeq(torch.nn.Module):
                                            take_two_seqs=False,
                                            use_mask=use_mask)
 
-    # seq: [batch, seq, vocab_size]
+    # seq: [batch, seq]
     # ret: [batch, seq, vocab_size]
     def forward(self, seq):
         seq_embed  = self.embedding(seq)
-        seq_embed += self.positional(seq)
+        seq_embed += self.positional(seq_embed)
         seq_input  = self.dropout(seq_embed)
         seq_output = self.xxcoder(seq_input)
         if not self.output_probs:

@@ -12,7 +12,7 @@ from transformer import *
 class TestEmbedding(unittest.TestCase):
     
     def testShape(self):
-        x = torch.rand(100,40,10)
+        x = torch.randint(high=10,size=(100,40))
         x_emb = torch.rand(100,40,4)
 
         emb = Embedding(10,4,fix_norm=False)
@@ -32,8 +32,7 @@ class TestEmbedding(unittest.TestCase):
         emb.embedding = torch.nn.Parameter(torch.tensor([[1.0, 1.0, 1.0, 1.0],
                                                          [2.0, 2.0, 2.0, 2.0]]))
 
-        input_tensor = torch.tensor([[[1.0, 0.0],
-                                      [0.0, 1.0]]])
+        input_tensor = torch.tensor([[0,1]])
         correct_tensor = torch.tensor([[[2.0, 2.0, 2.0, 2.0],
                                         [4.0, 4.0, 4.0, 4.0]]])
         actual_tensor = emb(input_tensor, reverse=False)
@@ -49,7 +48,7 @@ class TestEmbedding(unittest.TestCase):
         emb.embedding = torch.nn.Parameter(torch.tensor([[1.0, 1.0, 1.0, 1.0],
                                                          [2.0, 2.0, 2.0, 2.0]]))
 
-        input_tensor = torch.tensor([[[1.0, 0.0]]])
+        input_tensor = torch.tensor([[0]])
         correct_tensor = torch.tensor([[[1.0, 1.0, 1.0, 1.0]]])
         actual_tensor = emb(input_tensor, reverse=False)
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
@@ -522,8 +521,8 @@ class TestTransformer(unittest.TestCase):
         self.config = read_config("configuration.toml")
 
     def testTwoSeqShape(self):
-        x = torch.rand(5,10,1000)
-        y = torch.rand(5,20,1000)
+        x = torch.randint(high=1000,size=(5,10))
+        y = torch.randint(high=1000,size=(5,20))
 
         t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=False, vocab_size=1000, tgt_support_mask=None)
         out = t(x, y)
@@ -534,7 +533,7 @@ class TestTransformer(unittest.TestCase):
         self.assertEqual(out.shape, (5,20,1000))
 
     def testOneSeqShape(self):
-        y = torch.rand(5,20,1000)
+        y = torch.randint(high=1000,size=(5,20))
 
         t = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=False, vocab_size=1000, support_mask=None)
         out = t(y)
@@ -545,8 +544,8 @@ class TestTransformer(unittest.TestCase):
         self.assertEqual(out.shape, (5,20,1000))
 
     def testEncoderDecoderShape(self):
-        x = torch.rand(5,10,1000)
-        y = torch.rand(5,20,1000)
+        x = torch.randint(high=1000,size=(5,10))
+        y = torch.randint(high=1000,size=(5,20))
 
         self.config.arch.transformer_type = TransformerType.ENCODER_DECODER
         t = get_transformer(self.config, vocab_size=1000, tgt_support_mask=None)
@@ -554,7 +553,7 @@ class TestTransformer(unittest.TestCase):
         self.assertEqual(out.shape, (5,20,1000))
 
     def testEncoderOnlyShape(self):
-        x = torch.rand(5,10,1000)
+        x = torch.randint(high=1000,size=(5,10))
 
         self.config.arch.transformer_type = TransformerType.ENCODER_ONLY
         t = get_transformer(self.config, vocab_size=1000, tgt_support_mask=None)
@@ -562,7 +561,7 @@ class TestTransformer(unittest.TestCase):
         self.assertEqual(out.shape, (5,10,512))
 
     def testDecoderOnlyShape(self):
-        y = torch.rand(5,20,1000)
+        y = torch.randint(high=1000,size=(5,20))
 
         self.config.arch.transformer_type = TransformerType.DECODER_ONLY
         t = get_transformer(self.config, vocab_size=1000, tgt_support_mask=None)
@@ -574,10 +573,10 @@ class TestTransformer(unittest.TestCase):
         self.config.train.ff_dropout = 0.0
         self.config.train.att_dropout = 0.0
 
-        x1 = torch.rand(5,10,30)
-        x2 = torch.rand(5,10,30)
-        y1 = torch.rand(5,20,30)
-        y2 = torch.rand(5,20,30)
+        x1 = torch.randint(high=30,size=(5,10))
+        x2 = torch.randint(high=30,size=(5,10))
+        y1 = torch.randint(high=30,size=(5,20))
+        y2 = torch.randint(high=30,size=(5,20))
 
         t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=False, vocab_size=30, tgt_support_mask=None)
         t.train()
@@ -592,8 +591,8 @@ class TestTransformer(unittest.TestCase):
         self.assertTrue(torch.equal(out1, out2))
 
     def testTgtVocabMask(self):
-        x = torch.rand(4,3,5)
-        y = torch.rand(4,3,5)
+        x = torch.randint(high=5,size=(4,3))
+        y = torch.randint(high=5,size=(4,3))
         tgt_support_mask = torch.tensor([1.0, 1.0, 0.0, 1.0, 0.0])
 
         t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=False, num_dec_layers=6, use_mask_dec=True, output_probs=True, vocab_size=5, tgt_support_mask=tgt_support_mask)

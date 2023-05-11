@@ -4,7 +4,7 @@
 # TODO(darcey): improve how the support mask is handled, so that the logic around it, and the connection to the label smoothing counts, is less confusing (see tests for loss)
 # TODO(darcey): right now prep_batch is run identically every time we evaluate on the dev data; do it just once for dev data
 # TODO(darcey): consider moving the label smoothing initialization stuff into its own function for modularity
-# TODO(darcey): improve torch efficiency throughout codebase (switch from reshape to view? bmm vs. matmul? stop using one-hots where possible?)
+# TODO(darcey): improve torch efficiency throughout codebase (switch from reshape to view? bmm vs. matmul?)
 # TODO(darcey): implement classifier learning also
 
 import math
@@ -161,6 +161,9 @@ class Trainer():
         else:
             return False
 
+    # src:     [batch, src_seq]
+    # tgt_in:  [batch, tgt_seq]
+    # tgt_out: [batch, tgt_seq]
     def prep_batch(self, batch, do_dropout=False):
         # get relevant info from batch
         src = batch["src"].to(self.device)
@@ -171,12 +174,6 @@ class Trainer():
         if do_dropout:
             src = self.word_dropout(src, self.word_dropout_prob)
             tgt_in = self.word_dropout(tgt_in, self.word_dropout_prob)
-
-        # convert to one-hots
-        vocab_size = len(self.vocab)
-        src = torch.nn.functional.one_hot(src, vocab_size).type(torch.float)
-        tgt_in = torch.nn.functional.one_hot(tgt_in, vocab_size).type(torch.float)
-        tgt_out = torch.nn.functional.one_hot(tgt_out, vocab_size).type(torch.float)
 
         return src, tgt_in, tgt_out
 
@@ -189,7 +186,7 @@ class Trainer():
         return data * (1 - unk_mask) + unk_tensor * unk_mask
 
     # predicted: [batch, tgt_seq, vocab_size] <-- log probs output by model
-    # gold:    [batch, tgt_seq, vocab_size] <-- one-hot of correct answer
+    # gold:      [batch, tgt_seq]             <-- indices of correct answers
     # ret:       scalar
     def loss(self, predicted, gold):
         cross_ent, num_toks = self.cross_ent(predicted, gold, smooth=True)
@@ -197,31 +194,26 @@ class Trainer():
 
     # cross-entropy as estimated from an empirical sample
     # predicted: [batch, tgt_seq, vocab_size] <-- log probs output by model
-    # gold:    [batch, tgt_seq, vocab_size] <-- one-hot of correct answer
+    # gold:      [batch, tgt_seq]             <-- indices of correct answers
     # ret:       scalar
     def cross_ent(self, predicted, gold, smooth=False):
         # filter out positions which are PAD
-        # [batch*tgt_seq, vocab_size]
         vocab_size   = predicted.size(-1)
-        predicted    = predicted.reshape(-1, vocab_size)
-        gold         = gold.reshape(-1, vocab_size)
+        predicted    = predicted.reshape(-1, vocab_size)  # [batch*tgt_seq, voc]
+        gold         = gold.reshape(-1)                   # [batch*tgt_seq]
         pad_idx      = self.vocab.pad_idx()
-        non_pad_mask = (gold[:, pad_idx] != 1)
-        predicted    = predicted[non_pad_mask]
-        gold       = gold[non_pad_mask]
+        non_pad_mask = (gold != pad_idx)                  # [batch*tgt_seq]
+        predicted    = predicted[non_pad_mask]            # [num_toks, voc]
+        gold         = gold[non_pad_mask]                 # [num_toks]
         num_toks     = torch.sum(non_pad_mask)
 
-        # compute the smoothed true counts according to label smoothing
-        # [batch*tgt_seq, vocab_size]
+        # cross_entropy formula:
+        # cross_ent = - ((1-ls)*gold_one_hots + ls*ls_counts) * predicted
+        #           = - ((1-ls)*gold_one_hots*predicted + ls*ls_counts*predicted
         ls = self.label_smoothing if smooth else 0.0
-        gold_smoothed = (1 - ls) * gold + ls * self.label_smoothing_counts
-
-        # remove positions not in the support of the model/true distribution
-        # (because they are src vocab words or special tokens that can never
-        #  appear on the target side, and should have probability -inf)
-        predicted = predicted[:, self.support_mask]
-        gold_smoothed = gold_smoothed[:, self.support_mask]
-
-        # compute the cross entropy
-        cross_ent = - gold_smoothed * predicted
-        return torch.sum(cross_ent), num_toks
+        cross_ent_gold = (1-ls) * torch.gather(predicted, -1, gold.unsqueeze(-1)).squeeze()
+        cross_ent_ls   = ls     * predicted * self.label_smoothing_counts
+        cross_ent_ls   = cross_ent_ls[:, self.support_mask]
+        cross_ent_ls   = torch.sum(cross_ent_ls, dim=-1)
+        cross_ent      = - torch.sum(cross_ent_gold + cross_ent_ls)
+        return cross_ent, num_toks
