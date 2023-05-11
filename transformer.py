@@ -1,5 +1,4 @@
 # TODO(darcey): look into methods of initializing the parameters (see Toan's paper, section 2.2)
-# TODO(darcey): think about the joint scale norm / fix norm thing from Toan's paper (section 2.3) and see whether it's equivalent to what I'm doing
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
 # TODO(darcey): maybe switch the input to just be indices and not one-hots to save memory?
 # TODO(darcey): consider switching to Brian's clever strategy for src/tgt masking
@@ -19,9 +18,7 @@ class Embedding(torch.nn.Module):
         super().__init__()
 
         # FixNorm is from https://aclanthology.org/2019.iwslt-1.17.pdf
-        self.fix_norm = fix_norm
-        if self.fix_norm:
-            self.g    = torch.nn.Parameter(torch.rand(()))
+        self.fix_norm       = fix_norm
 
         self.embed_dim      = embed_dim
         self.embed_dim_sqrt = math.sqrt(embed_dim)
@@ -31,7 +28,7 @@ class Embedding(torch.nn.Module):
     # ret:  [batch, seq, d_model]
     def forward(self, seq, reverse=False):
         if self.fix_norm:
-            emb_mat = self.g * torch.nn.functional.normalize(self.embedding, dim=-1)
+            emb_mat = torch.nn.functional.normalize(self.embedding, dim=-1)
         else:
             emb_mat = self.embedding
 

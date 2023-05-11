@@ -46,7 +46,6 @@ class TestEmbedding(unittest.TestCase):
 
     def testCorrectnessFixNorm(self):
         emb = Embedding(2,4,fix_norm=True)
-        emb.g = torch.nn.Parameter(torch.tensor(1.0))
         emb.embedding = torch.nn.Parameter(torch.tensor([[1.0, 1.0, 1.0, 1.0],
                                                          [2.0, 2.0, 2.0, 2.0]]))
 
