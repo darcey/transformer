@@ -1,6 +1,7 @@
 # TODO(darcey): write the seq2seq test dataset code
 
 # TODO(darcey): convert batch from dict to object so it can be worked with more easily
+# TODO(darcey): think about adding code for Toan and Kenton's data augmentation strategy that glues multiple sentences together before training
 # TODO(darcey): write dataset classes for classification tasks
 
 import random
@@ -13,9 +14,12 @@ class Seq2SeqTrainDataset:
 
     # assumes src, tgt are lists of lists of token indices
     # sorts by tgt length because that determines number of training steps
-    def __init__(self, src, tgt, vocab, batch_size, randomize=False):
+    def __init__(self, src, tgt, vocab, batch_size, sort_by_tgt_only=False, randomize=False):
         self.vocab = vocab
-        sorted_src, sorted_tgt = self.sort_by_tgt_len(src, tgt)
+        if sort_by_tgt_only:
+            sorted_src, sorted_tgt = self.sort_by_tgt_len(src, tgt)
+        else:
+            sorted_src, sorted_tgt = self.sort_by_both_lens(src, tgt)
         self.batches = self.make_batches(sorted_src, sorted_tgt, batch_size)
         self.randomize = randomize
         self.num_iters = 0
@@ -31,18 +35,35 @@ class Seq2SeqTrainDataset:
         sorted_tgt = [tgt[i] for i in sorted_idxs]
         return sorted_src, sorted_tgt
 
+    # radix sort on src and tgt lengths
+    def sort_by_both_lens(self, src, tgt):
+        src_lens = [len(src_sent) for src_sent in src]
+        sorted1_idxs = np.argsort(src_lens, kind="stable")
+        sorted1_src = [src[i] for i in sorted1_idxs]
+        sorted1_tgt = [tgt[i] for i in sorted1_idxs]
+
+        tgt_lens = [len(tgt_sent) for tgt_sent in sorted1_tgt]
+        sorted2_idxs = np.argsort(tgt_lens, kind="stable")
+        sorted2_src = [sorted1_src[i] for i in sorted2_idxs]
+        sorted2_tgt = [sorted1_tgt[i] for i in sorted2_idxs]
+
+        return sorted2_src, sorted2_tgt
+
     def make_batches(self, src, tgt, batch_size):
         batches = []
 
         curr_batch = []
-        curr_num_toks = 0
+        curr_src_toks = 0
+        curr_tgt_toks = 0
         for (src_sent, tgt_sent) in zip(src, tgt):
             curr_batch.append((src_sent, tgt_sent))
-            curr_num_toks += len(tgt_sent) + 1
-            if curr_num_toks >= batch_size:
+            curr_src_toks += len(src_sent) + 1  # the +1 is for BOS/EOS
+            curr_tgt_toks += len(tgt_sent) + 1
+            if (curr_src_toks >= batch_size) or (curr_tgt_toks >= batch_size):
                 batches.append(self.make_one_batch(curr_batch))
                 curr_batch = []
-                curr_num_toks = 0
+                curr_src_toks = 0
+                curr_tgt_toks = 0
         if len(curr_batch) > 0:
             batches.append(self.make_one_batch(curr_batch))
 

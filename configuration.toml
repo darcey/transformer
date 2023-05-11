@@ -35,7 +35,10 @@ fix_norm               = true
 # Length of training
 max_epochs             = 200
 epoch_size             = 1000
-batch_size             = 2048
+
+# Batching
+batch_size             = 8192
+sort_by_tgt_only       = true
 
 # Learning rate
 lr.lr_strategy         = "NoWarmup_ValDecay"

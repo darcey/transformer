@@ -72,8 +72,8 @@ if __name__ == '__main__':
     dev_tgt_idxs = [vocab.tok_to_idx(sent) for sent in dev_tgt_unk]
     
     # make the data batches
-    train_batches = Seq2SeqTrainDataset(train_src_idxs, train_tgt_idxs, vocab, config.train.batch_size, randomize=True)
-    dev_batches = Seq2SeqTrainDataset(dev_src_idxs, dev_tgt_idxs, vocab, config.train.batch_size, randomize=False)
+    train_batches = Seq2SeqTrainDataset(train_src_idxs, train_tgt_idxs, vocab, config.train.batch_size, sort_by_tgt_only=config.train.sort_by_tgt_only, randomize=True)
+    dev_batches = Seq2SeqTrainDataset(dev_src_idxs, dev_tgt_idxs, vocab, config.train.batch_size, sort_by_tgt_only=False, randomize=False)
 
     # make the model
     tgt_support_mask = vocab.get_tgt_support_mask()
