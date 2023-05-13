@@ -201,7 +201,7 @@ class MultiHeadAttention(torch.nn.Module):
 
 class SublayerConnection(torch.nn.Module):
 
-    def __init__(self, sublayer_func, sublayer, config):
+    def __init__(self, config):
         super().__init__()
         self.use_resid     = config.arch.use_resid_connection
 
@@ -210,17 +210,12 @@ class SublayerConnection(torch.nn.Module):
         self.norm          = get_normalization(config)
         self.dropout       = torch.nn.Dropout(p=config.train.dropout)
 
-        self.sublayer      = sublayer
-        self.sublayer_func = sublayer_func
-
-    # prev_seq: [batch, prev_seq, d_model]
     # this_seq: [batch, this_seq, d_model]
-    # mask:     [this_seq, this_seq]
     # ret:      [batch, this_seq, d_model]
-    def forward(self, this_seq, *other_inputs):
+    def forward(self, this_seq, sublayer_func):
         ret = this_seq
         ret = self.norm(ret) if self.pre_norm else ret
-        ret = self.sublayer_func(self.sublayer, ret, *other_inputs)
+        ret = sublayer_func(ret)
         ret = self.dropout(ret)
         ret = ret + this_seq if self.use_resid else ret
         ret = self.norm(ret) if not self.pre_norm else ret
@@ -232,22 +227,18 @@ class Layer(torch.nn.Module):
 
     def __init__(self, config, take_two_seqs, use_mask):
         super().__init__()
-        self.use_resid     = config.arch.use_resid_connection
         self.use_mask      = use_mask
         self.take_two_seqs = take_two_seqs
 
-        self_attention         = get_attention(config)
-        self_att_func          = lambda s, y, m: s(y, y, y, m)
-        self.self_att_sublayer = SublayerConnection(self_att_func, self_attention, config)
+        self.self_attention    = get_attention(config)
+        self.self_att_sublayer = SublayerConnection(config)
 
         if take_two_seqs:
-            cross_attention         = get_attention(config)
-            cross_att_func          = lambda s, y, x: s(y, x, x)
-            self.cross_att_sublayer = SublayerConnection(cross_att_func, cross_attention, config)
+            self.cross_attention    = get_attention(config)
+            self.cross_att_sublayer = SublayerConnection(config)
 
-        feed_forward      = get_feed_forward(config)
-        feed_forward_func = lambda s, y: s(y)
-        self.ff_sublayer  = SublayerConnection(feed_forward_func, feed_forward, config)
+        self.feed_forward = get_feed_forward(config)
+        self.ff_sublayer  = SublayerConnection(config)
 
     # prev_seq: [batch, prev_seq, d_model]
     # this_seq: [batch, this_seq, d_model]
@@ -259,9 +250,10 @@ class Layer(torch.nn.Module):
             raise ValueError("Layer: bad combination of arguments")
 
         ret = this_seq
-        ret = self.self_att_sublayer(ret, mask)
-        ret = self.cross_att_sublayer(ret, prev_seq) if self.take_two_seqs else ret
-        ret = self.ff_sublayer(ret) 
+        ret = self.self_att_sublayer(ret, lambda y: self.self_attention(y, y, y, mask))
+        if self.take_two_seqs:
+            ret = self.cross_att_sublayer(ret, lambda y: self.cross_attention(y, prev_seq, prev_seq))
+        ret = self.ff_sublayer(ret, lambda y: self.feed_forward(y))
         return ret
 
 

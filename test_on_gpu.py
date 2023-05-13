@@ -190,8 +190,7 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        mock_sublayer = None
-        def mock_sublayer_func(s, y, *other_inputs):
+        def mock_sublayer_func(y):
             return y
         y_cpu = torch.rand(100,20,512)
         y_gpu = y_cpu.to("cuda:0")
@@ -201,40 +200,40 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         self.config.arch.pre_norm = True
         self.config.arch.use_resid_connection = True
 
-        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
+        slc_cpu = SublayerConnection(self.config)
         slc_gpu = copy.deepcopy(slc_cpu).to("cuda:0")
-        out_cpu = slc_cpu(y_cpu)
-        out_gpu = slc_gpu(y_gpu)
+        out_cpu = slc_cpu(y_cpu, mock_sublayer_func)
+        out_gpu = slc_gpu(y_gpu, mock_sublayer_func)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
 
         # pre norm, no resid
         self.config.arch.pre_norm = True
         self.config.arch.use_resid_connection = False
 
-        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
+        slc_cpu = SublayerConnection(self.config)
         slc_gpu = copy.deepcopy(slc_cpu).to("cuda:0")
-        out_cpu = slc_cpu(y_cpu)
-        out_gpu = slc_gpu(y_gpu)
+        out_cpu = slc_cpu(y_cpu, mock_sublayer_func)
+        out_gpu = slc_gpu(y_gpu, mock_sublayer_func)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
 
         # post norm, resid
         self.config.arch.pre_norm = False
         self.config.arch.use_resid_connection = True
 
-        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
+        slc_cpu = SublayerConnection(self.config)
         slc_gpu = copy.deepcopy(slc_cpu).to("cuda:0")
-        out_cpu = slc_cpu(y_cpu)
-        out_gpu = slc_gpu(y_gpu)
+        out_cpu = slc_cpu(y_cpu, mock_sublayer_func)
+        out_gpu = slc_gpu(y_gpu, mock_sublayer_func)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
 
         # post norm, no resid
         self.config.arch.pre_norm = False
         self.config.arch.use_resid_connection = False
 
-        slc_cpu = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
+        slc_cpu = SublayerConnection(self.config)
         slc_gpu = copy.deepcopy(slc_cpu).to("cuda:0")
-        out_cpu = slc_cpu(y_cpu)
-        out_gpu = slc_gpu(y_gpu)
+        out_cpu = slc_cpu(y_cpu, mock_sublayer_func)
+        out_gpu = slc_gpu(y_gpu, mock_sublayer_func)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
 
     def testLayer(self):

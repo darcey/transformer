@@ -183,7 +183,7 @@ class TestFeedForward(unittest.TestCase):
 
 class TestMultiHeadAttention(unittest.TestCase):
 
-    def testBadInput(self):
+    def testInitBadParams(self):
         with self.assertRaises(ValueError):
             mha = MultiHeadAttention(20, 8)
         with self.assertRaises(ValueError):
@@ -255,8 +255,7 @@ class TestSublayerConnection(unittest.TestCase):
         self.config = read_config("configuration.toml")
 
     def testShape(self):
-        mock_sublayer = None
-        def mock_sublayer_func(s, y, *other_inputs):
+        def mock_sublayer_func(y):
             return y
         y = torch.rand(100,20,512)
 
@@ -264,59 +263,33 @@ class TestSublayerConnection(unittest.TestCase):
         self.config.arch.pre_norm = True
         self.config.arch.use_resid_connection = True
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
-        out = slc(y)
+        slc = SublayerConnection(self.config)
+        out = slc(y, mock_sublayer_func)
         self.assertEqual(out.shape, (100,20,512))
 
         # pre norm, no resid
         self.config.arch.pre_norm = True
         self.config.arch.use_resid_connection = False
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
-        out = slc(y)
+        slc = SublayerConnection(self.config)
+        out = slc(y, mock_sublayer_func)
         self.assertEqual(out.shape, (100,20,512))
 
         # post norm, resid
         self.config.arch.pre_norm = False
         self.config.arch.use_resid_connection = True
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
-        out = slc(y)
+        slc = SublayerConnection(self.config)
+        out = slc(y, mock_sublayer_func)
         self.assertEqual(out.shape, (100,20,512))
 
         # post norm, no resid
         self.config.arch.pre_norm = False
         self.config.arch.use_resid_connection = False
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
-        out = slc(y)
+        slc = SublayerConnection(self.config)
+        out = slc(y, mock_sublayer_func)
         self.assertEqual(out.shape, (100,20,512))
-
-    def testPassesArgsCorrectly(self):
-        # multiple args in a weird order
-        y = torch.rand(100,20,512)
-        x = torch.rand(100,10,512)
-        m = torch.rand(20,20)
-        def mock_sublayer(y, m, x1, x2):
-            self.assertEqual(y.shape, (100,20,512))
-            self.assertEqual(m.shape, (20,20))
-            self.assertEqual(x1.shape, (100,10,512))
-            self.assertTrue(torch.equal(x1, x2))
-            return y
-        mock_sublayer_func = lambda s, y, x, m: s(y, m, x, x)
-
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
-        slc(y, x, m)
-
-        # no args
-        y = torch.rand(100,20,512)
-        def mock_sublayer(y):
-            self.assertEqual(y.shape, (100,20,512))
-            return y
-        mock_sublayer_func = lambda s, y: s(y)
-
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
-        slc(y)
 
     def testCorrectnessMocked(self):
         class MockNorm(torch.nn.Module):
@@ -325,62 +298,60 @@ class TestSublayerConnection(unittest.TestCase):
             def forward(self, y):
                 return 10 * y
         mock_norm = MockNorm()
-        mock_sublayer = lambda y: y + 2
-        mock_sublayer_func = lambda s, y: s(y)
+        mock_sublayer_func = lambda y: y + 2
         input_tensor = torch.ones(3,4,5)
         self.config.train.dropout = 0.0
 
         # pre norm, resid
         self.config.arch.pre_norm = True
         self.config.arch.use_resid_connection = True
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
+        slc = SublayerConnection(self.config)
         slc.norm = mock_norm
 
         correct_tensor = torch.ones(3,4,5) * 13
-        actual_tensor = slc(input_tensor)
+        actual_tensor = slc(input_tensor, mock_sublayer_func)
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
         # pre norm, no resid
         self.config.arch.pre_norm = True
         self.config.arch.use_resid_connection = False
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
+        slc = SublayerConnection(self.config)
         slc.norm = mock_norm
 
         correct_tensor = torch.ones(3,4,5) * 12
-        actual_tensor = slc(input_tensor)
+        actual_tensor = slc(input_tensor, mock_sublayer_func)
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
         # post norm, resid
         self.config.arch.pre_norm = False
         self.config.arch.use_resid_connection = True
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
+        slc = SublayerConnection(self.config)
         slc.norm = mock_norm
 
         correct_tensor = torch.ones(3,4,5) * 40
-        actual_tensor = slc(input_tensor)
+        actual_tensor = slc(input_tensor, mock_sublayer_func)
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
         # post norm, no resid
         self.config.arch.pre_norm = False
         self.config.arch.use_resid_connection = False
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
+        slc = SublayerConnection(self.config)
         slc.norm = mock_norm
 
         correct_tensor = torch.ones(3,4,5) * 30
-        actual_tensor = slc(input_tensor)
+        actual_tensor = slc(input_tensor, mock_sublayer_func)
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
     def testDropout(self):
-        mock_sublayer = None
-        def mock_sublayer_func(s, y, *other_inputs):
+        def mock_sublayer_func(y):
             return y
         self.config.arch.pre_norm = True
         self.config.train.dropout = 1.0
 
-        slc = SublayerConnection(mock_sublayer_func, mock_sublayer, self.config)
+        slc = SublayerConnection(self.config)
         slc.train()
         input_tensor = torch.rand(100,20,512)
-        actual_tensor = slc(input_tensor)
+        actual_tensor = slc(input_tensor, mock_sublayer_func)
         self.assertTrue(torch.equal(actual_tensor, input_tensor))
 
 

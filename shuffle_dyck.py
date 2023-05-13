@@ -42,14 +42,14 @@ class ShuffleDyckRecognizer():
         proj_k = torch.zeros(2*k, 2*k)
         proj_v = torch.eye(2*k, 2*k)
         proj_out = torch.eye(2*k, 2*k)
-        t.xxcoder.layers[0].self_att_sublayer.sublayer.proj_k.weight = torch.nn.Parameter(proj_k)
-        t.xxcoder.layers[0].self_att_sublayer.sublayer.proj_v.weight = torch.nn.Parameter(proj_v)
-        t.xxcoder.layers[0].self_att_sublayer.sublayer.proj_out.weight = torch.nn.Parameter(proj_out)
+        t.xxcoder.layers[0].self_attention.proj_k.weight = torch.nn.Parameter(proj_k)
+        t.xxcoder.layers[0].self_attention.proj_v.weight = torch.nn.Parameter(proj_v)
+        t.xxcoder.layers[0].self_attention.proj_out.weight = torch.nn.Parameter(proj_out)
 
-        t.xxcoder.layers[0].ff_sublayer.sublayer.layer1 = torch.nn.Linear(2*k, 2*k, bias=False)
-        t.xxcoder.layers[0].ff_sublayer.sublayer.layer2 = torch.nn.Linear(2*k, 2*k, bias=False)
-        t.xxcoder.layers[0].ff_sublayer.sublayer.layer1.weight = torch.nn.Parameter(torch.eye(2*k, 2*k))
-        t.xxcoder.layers[0].ff_sublayer.sublayer.layer2.weight = torch.nn.Parameter(torch.eye(2*k, 2*k))
+        t.xxcoder.layers[0].feed_forward.layer1 = torch.nn.Linear(2*k, 2*k, bias=False)
+        t.xxcoder.layers[0].feed_forward.layer2 = torch.nn.Linear(2*k, 2*k, bias=False)
+        t.xxcoder.layers[0].feed_forward.layer1.weight = torch.nn.Parameter(torch.eye(2*k, 2*k))
+        t.xxcoder.layers[0].feed_forward.layer2.weight = torch.nn.Parameter(torch.eye(2*k, 2*k))
 
         self.k = k
         self.vocab_size = vocab_size
