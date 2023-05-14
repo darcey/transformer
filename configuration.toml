@@ -52,6 +52,9 @@ lr.stop_lr             = 5e-5
 # Used by NoWarmup_ValDecay
 lr.start_lr            = 3e-4
 
+# Initialization
+use_toan_init          = true
+
 # Dropout options
 dropout                = 0.3
 att_dropout            = 0.3

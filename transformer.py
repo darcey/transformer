@@ -1,4 +1,3 @@
-# TODO(darcey): look into methods of initializing the parameters (see Toan's paper, section 2.2)
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
 # TODO(darcey): consider switching to Brian's clever strategy for src/tgt masking
 
@@ -21,7 +20,11 @@ class Embedding(torch.nn.Module):
 
         self.embed_dim      = embed_dim
         self.embed_dim_sqrt = math.sqrt(embed_dim)
-        self.embedding      = torch.nn.Parameter(torch.rand(vocab_size, embed_dim))
+        self.embedding      = torch.nn.Parameter(torch.zeros(vocab_size, embed_dim))
+        if self.fix_norm:
+            torch.nn.init.uniform_(self.embedding, a=-0.01, b=0.01)
+        else:
+            torch.nn.init.normal_(self.embedding, mean=0.0, std=(embed_dim ** -0.5))
 
     # seq:  [batch, seq]
     # ret:  [batch, seq, d_model]
@@ -84,7 +87,7 @@ def get_normalization(config):
         case NormType.LAYER_NORM:
             return LayerNorm(config.arch.d_model, config.arch.layer_norm_epsilon)
         case NormType.SCALE_NORM:
-            return ScaleNorm()
+            return ScaleNorm(config.arch.d_model)
 
 class LayerNorm(torch.nn.Module):
 
@@ -92,8 +95,8 @@ class LayerNorm(torch.nn.Module):
     def __init__(self, dim, epsilon):
         super().__init__()
         self.epsilon = epsilon
-        self.gamma   = torch.nn.Parameter(torch.rand(dim))
-        self.beta    = torch.nn.Parameter(torch.rand(dim))
+        self.gamma   = torch.nn.Parameter(torch.ones(dim))
+        self.beta    = torch.nn.Parameter(torch.zeros(dim))
 
     # x:   [batch, seq, d_model]
     # ret: [batch, seq, d_model]
@@ -105,9 +108,9 @@ class LayerNorm(torch.nn.Module):
 class ScaleNorm(torch.nn.Module):
 
     # Scale Norm: https://aclanthology.org/2019.iwslt-1.17.pdf
-    def __init__(self):
+    def __init__(self, scale):
         super().__init__()
-        self.g = torch.nn.Parameter(torch.rand(()))
+        self.g = torch.nn.Parameter(torch.tensor(scale ** 0.5))
 
     # x:   [batch, seq, d_model]
     # ret: [batch, seq, d_model]
@@ -117,14 +120,26 @@ class ScaleNorm(torch.nn.Module):
 
 
 def get_feed_forward(config):
-    return FeedForward(config.arch.d_model, config.arch.d_ff, config.train.ff_dropout)
+    return FeedForward(config.arch.d_model, config.arch.d_ff, config.train.use_toan_init, config.train.ff_dropout)
 
 class FeedForward(torch.nn.Module):
 
-    def __init__(self, input_dim, hidden_dim, dropout):
+    def __init__(self, input_dim, hidden_dim, use_toan_init, dropout):
         super().__init__()
         self.layer1  = torch.nn.Linear(input_dim, hidden_dim, bias=True)
         self.layer2  = torch.nn.Linear(hidden_dim, input_dim, bias=True)
+
+        if use_toan_init:
+            mean = 0
+            std = (2 / (input_dim + hidden_dim)) ** 0.5
+            torch.nn.init.normal_(self.layer1.weight, mean=mean, std=std)
+            torch.nn.init.normal_(self.layer2.weight, mean=mean, std=std)
+        else:
+            torch.nn.init.xavier_uniform_(self.layer1.weight)
+            torch.nn.init.xavier_uniform_(self.layer2.weight)
+        torch.nn.init.zeros_(self.layer1.bias)
+        torch.nn.init.zeros_(self.layer2.bias)
+
         self.dropout = torch.nn.Dropout(p=dropout)
 
     # x:   [batch, seq, d_model]
@@ -139,11 +154,11 @@ class FeedForward(torch.nn.Module):
 
 
 def get_attention(config):
-    return MultiHeadAttention(config.arch.d_model, config.arch.num_attention_heads, dropout=config.train.att_dropout)
+    return MultiHeadAttention(config.arch.d_model, config.arch.num_attention_heads, use_toan_init=config.train.use_toan_init, dropout=config.train.att_dropout)
 
 class MultiHeadAttention(torch.nn.Module):
 
-    def __init__(self, input_dim, num_heads, qk_dim=None, v_dim=None, dropout=0.3):
+    def __init__(self, input_dim, num_heads, qk_dim=None, v_dim=None, use_toan_init=True, dropout=0.3):
         super().__init__()
 
         if qk_dim == None or v_dim == None:
@@ -158,6 +173,19 @@ class MultiHeadAttention(torch.nn.Module):
         self.proj_k   = torch.nn.Linear(input_dim, num_heads*self.qk_dim, bias=False)
         self.proj_v   = torch.nn.Linear(input_dim, num_heads*self.v_dim, bias=False)
         self.proj_out = torch.nn.Linear(num_heads*self.v_dim, input_dim, bias=False)
+
+        if use_toan_init:
+            mean = 0
+            std = (2 / (5 * input_dim)) ** 0.5
+            torch.nn.init.normal_(self.proj_q.weight, mean=mean, std=std)
+            torch.nn.init.normal_(self.proj_k.weight, mean=mean, std=std)
+            torch.nn.init.normal_(self.proj_v.weight, mean=mean, std=std)
+            torch.nn.init.normal_(self.proj_out.weight, mean=mean, std=std)
+        else:
+            torch.nn.init.xavier_uniform_(self.proj_q.weight)
+            torch.nn.init.xavier_uniform_(self.proj_k.weight)
+            torch.nn.init.xavier_uniform_(self.proj_v.weight)
+            torch.nn.init.xavier_uniform_(self.proj_out.weight)
 
         self.dropout = torch.nn.Dropout(p=dropout)
 

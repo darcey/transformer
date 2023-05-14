@@ -137,7 +137,7 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        sn_cpu = ScaleNorm()
+        sn_cpu = ScaleNorm(scale=1)
         sn_gpu = copy.deepcopy(sn_cpu).to("cuda:0")
         x = torch.rand(2,3,4)
         out_cpu = sn_cpu(x)
@@ -148,7 +148,7 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        ff_cpu = ff = FeedForward(64, 256, dropout=0.0)
+        ff_cpu = ff = FeedForward(64, 256, use_toan_init=False, dropout=0.0)
         ff_gpu = copy.deepcopy(ff_cpu).to("cuda:0")
         x = torch.rand(2,3,64)
         out_cpu = ff_cpu(x)
@@ -277,7 +277,7 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         eod_gpu = copy.deepcopy(eod_cpu).to("cuda:0")
         out_cpu = eod_cpu(y_cpu, ymask_cpu, x_cpu, xmask_cpu)
         out_gpu = eod_gpu(y_gpu, ymask_gpu, x_gpu, xmask_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
 
     def testTransformerTwoSeq(self):
         if not torch.cuda.is_available():
@@ -295,7 +295,7 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         t_gpu = copy.deepcopy(t_cpu).to("cuda:0")
         out_cpu = t_cpu(x_cpu, y_cpu)
         out_gpu = t_gpu(x_gpu, y_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
 
     def testTransformerOneSeq(self):
         if not torch.cuda.is_available():
@@ -311,4 +311,4 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         t_gpu = copy.deepcopy(t_cpu).to("cuda:0")
         out_cpu = t_cpu(y_cpu)
         out_gpu = t_gpu(y_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)

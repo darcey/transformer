@@ -129,13 +129,13 @@ class TestLayerNorm(unittest.TestCase):
 class TestScaleNorm(unittest.TestCase):
 
     def testShape(self):
-        sn = ScaleNorm()
+        sn = ScaleNorm(scale=1)
         x = torch.rand(6,5,4)
         out = sn(x)
         self.assertEqual(out.shape, (6,5,4))
 
     def testCorrectness(self):
-        sn = ScaleNorm()
+        sn = ScaleNorm(scale=1)
         input_tensor = torch.tensor([[[1.0,1.0,1.0,1.0]]])
         
         sn.g = torch.nn.Parameter(torch.tensor(1.0))
@@ -153,13 +153,18 @@ class TestScaleNorm(unittest.TestCase):
 class TestFeedForward(unittest.TestCase):
 
     def testShape(self):
-        ff = FeedForward(64, 256, dropout=0.3)
+        ff = FeedForward(64, 256, use_toan_init=False, dropout=0.3)
+        x = torch.rand(100, 10, 64)
+        out = ff(x)
+        self.assertEqual(out.shape, (100, 10, 64))
+
+        ff = FeedForward(64, 256, use_toan_init=True, dropout=0.3)
         x = torch.rand(100, 10, 64)
         out = ff(x)
         self.assertEqual(out.shape, (100, 10, 64))
 
     def testCorrectness(self):
-        ff = FeedForward(5, 5, dropout=0.0)
+        ff = FeedForward(5, 5, use_toan_init=False, dropout=0.0)
         ff.layer1.weight = torch.nn.Parameter(torch.eye(5))
         ff.layer1.bias = torch.nn.Parameter(torch.zeros(5))
         ff.layer2.weight = torch.nn.Parameter(torch.eye(5))
@@ -171,7 +176,7 @@ class TestFeedForward(unittest.TestCase):
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
     def testDropout(self):
-        ff = FeedForward(5, 5, dropout=1.0)
+        ff = FeedForward(5, 5, use_toan_init=False, dropout=1.0)
         ff.layer2.bias = torch.nn.Parameter(torch.zeros(5))
         ff.train()
         input_tensor = torch.rand(10, 12, 5)
@@ -221,6 +226,14 @@ class TestMultiHeadAttention(unittest.TestCase):
         out = mha(x, y, y, xymask1)
         self.assertEqual(out.shape, (100,5,64))
         out = mha(x, y, y, xymask2)
+        self.assertEqual(out.shape, (100,5,64))
+
+        # both init strategies
+        mha = MultiHeadAttention(64,8,use_toan_init=False)
+        out = mha(x, x, x, xmask1)
+        self.assertEqual(out.shape, (100,5,64))
+        mha = MultiHeadAttention(64,8,use_toan_init=True)
+        out = mha(x, x, x, xmask1)
         self.assertEqual(out.shape, (100,5,64))
 
     def testMask(self):
