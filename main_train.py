@@ -80,7 +80,7 @@ if __name__ == '__main__':
 
     # make the model
     tgt_support_mask = vocab.get_tgt_support_mask()
-    model = get_transformer(config, len(vocab), tgt_support_mask)
+    model = get_transformer(config, len(vocab), vocab.pad_idx(), tgt_support_mask)
     
     # TODO(darcey): if using dev BLEU, make the generator
     

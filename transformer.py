@@ -164,9 +164,9 @@ class MultiHeadAttention(torch.nn.Module):
     # q:    [batch, seq1, d_input]
     # k:    [batch, seq2, d_input]
     # v:    [batch, seq2, d_input]
-    # mask: [seq1, seq2]
+    # mask: [batch, seq1, seq2] or [batch, 1, seq2]
     # ret:  [batch, seq1, d_input]
-    def forward(self, q, k, v, mask=None):
+    def forward(self, q, k, v, mask):
         batch = q.size(0)
         seq1 = q.size(1)
         seq2 = k.size(1)
@@ -180,11 +180,11 @@ class MultiHeadAttention(torch.nn.Module):
         q = q.reshape(batch, seq1, self.num_heads, self.qk_dim).permute((0,2,1,3))
         k = k.reshape(batch, seq2, self.num_heads, self.qk_dim).permute((0,2,3,1))
         v = v.reshape(batch, seq2, self.num_heads, self.v_dim).permute((0,2,1,3))
+        mask = mask.unsqueeze(1)
 
         # do multihead attention
         key_queries = torch.matmul(q,k)/math.sqrt(self.qk_dim)
-        if mask is not None:
-            key_queries += mask
+        key_queries += mask
         probs = torch.softmax(key_queries, dim=-1)
         probs = self.dropout(probs)
         ret = torch.matmul(probs, v)
@@ -225,9 +225,8 @@ class SublayerConnection(torch.nn.Module):
 
 class Layer(torch.nn.Module):
 
-    def __init__(self, config, take_two_seqs, use_mask):
+    def __init__(self, config, take_two_seqs):
         super().__init__()
-        self.use_mask      = use_mask
         self.take_two_seqs = take_two_seqs
 
         self.self_attention    = get_attention(config)
@@ -240,20 +239,26 @@ class Layer(torch.nn.Module):
         self.feed_forward = get_feed_forward(config)
         self.ff_sublayer  = SublayerConnection(config)
 
-    # prev_seq: [batch, prev_seq, d_model]
-    # this_seq: [batch, this_seq, d_model]
-    # mask:     [this_seq, this_seq]
-    # ret:      [batch, this_seq, d_model]
-    def forward(self, this_seq, prev_seq=None, mask=None):
+    # prev_seq:  [batch, prev_seq, d_model]
+    # prev_mask: [batch, 1, prev_seq]
+    # this_seq:  [batch, this_seq, d_model]
+    # this_mask: [batch, 1, this_seq] or [batch, this_seq, this_seq]
+    # ret:       [batch, this_seq, d_model]
+    def forward(self, this_seq, this_mask, prev_seq=None, prev_mask=None):
         if ((prev_seq == None) != (not self.take_two_seqs)) or\
-           ((mask == None) != (not self.use_mask)):
+           ((prev_seq == None) != (prev_mask == None)):
             raise ValueError("Layer: bad combination of arguments")
 
-        ret = this_seq
-        ret = self.self_att_sublayer(ret, lambda y: self.self_attention(y, y, y, mask))
+        self_att_func = lambda this: self.self_attention(this, this, this, this_mask)
         if self.take_two_seqs:
-            ret = self.cross_att_sublayer(ret, lambda y: self.cross_attention(y, prev_seq, prev_seq))
-        ret = self.ff_sublayer(ret, lambda y: self.feed_forward(y))
+            cross_att_func = lambda this: self.cross_attention(this, prev_seq, prev_seq, prev_mask)
+        feed_forward_func = lambda this: self.feed_forward(this)
+
+        ret = this_seq
+        ret = self.self_att_sublayer(ret, self_att_func)
+        if self.take_two_seqs:
+            ret = self.cross_att_sublayer(ret, cross_att_func)
+        ret = self.ff_sublayer(ret, feed_forward_func)
         return ret
 
 
@@ -265,28 +270,29 @@ class Layer(torch.nn.Module):
 #   ???:           takes two sequences,  no masked self-attention
 class EncoderOrDecoder(torch.nn.Module):
 
-    def __init__(self, config, num_layers, take_two_seqs, use_mask):
+    def __init__(self, config, num_layers, take_two_seqs, masked_self_att):
         super().__init__()
-        self.use_mask      = use_mask
-        self.pre_norm      = config.arch.pre_norm
+        self.masked_self_att = masked_self_att
+        self.pre_norm        = config.arch.pre_norm
         if self.pre_norm:
-            self.norm      = get_normalization(config)
-        self.layers        = torch.nn.ModuleList([Layer(config, take_two_seqs, use_mask) for _ in range(num_layers)])
+            self.norm        = get_normalization(config)
+        self.layers          = torch.nn.ModuleList([Layer(config, take_two_seqs) for _ in range(num_layers)])
 
-    # prev_seq: [batch, prev_seq, d_model]
-    # this_seq: [batch, this_seq, d_model]
-    # ret:      [batch, this_seq, d_model]
-    def forward(self, this_seq, prev_seq=None):
-        if self.use_mask:
+    # prev_seq:  [batch, prev_seq, d_model]
+    # prev_mask: [batch, 1, prev_seq]
+    # this_seq:  [batch, this_seq, d_model]
+    # this_mask: [batch, 1, this_seq]
+    # ret:       [batch, this_seq, d_model]
+    def forward(self, this_seq, this_mask, prev_seq=None, prev_mask=None):
+        if self.masked_self_att:
             l = this_seq.size(1)
-            mask = torch.triu(torch.full((l, l), float('-inf')), diagonal=1)
-            mask = mask.type(this_seq.type())
-        else:
-            mask = None        
+            causal_mask = torch.triu(torch.full((l, l), float('-inf')), diagonal=1)
+            causal_mask = causal_mask.type(this_seq.type())
+            this_mask = this_mask + causal_mask
 
         ret = this_seq
         for layer in self.layers:
-            ret = layer(ret, prev_seq, mask)
+            ret = layer(ret, this_mask, prev_seq, prev_mask)
         ret = self.norm(ret) if self.pre_norm else ret
         return ret
 
@@ -298,52 +304,59 @@ class EncoderOrDecoder(torch.nn.Module):
 # The logic in get_transformer configures these two basic templates
 # into the three standard EncoderDecoder, EncoderOnly, and DecoderOnly
 # models, as well as custom options.
-def get_transformer(config, vocab_size, tgt_support_mask=None):
+def get_transformer(config, vocab_size, pad_idx, tgt_support_mask=None):
     match config.arch.transformer_type:
         case TransformerType.ENCODER_DECODER:
             return TransformerTwoSeq(config,
                                      num_enc_layers=config.arch.num_encoder_layers,
-                                     use_mask_enc=False,
+                                     masked_self_att_enc=False,
                                      num_dec_layers=config.arch.num_decoder_layers,
-                                     use_mask_dec=True,
+                                     masked_self_att_dec=True,
                                      output_probs=True,
                                      vocab_size=vocab_size,
+                                     pad_idx=pad_idx,
                                      tgt_support_mask=tgt_support_mask)
         case TransformerType.ENCODER_ONLY:
             return TransformerOneSeq(config,
                                      num_layers=config.arch.num_encoder_layers,
-                                     use_mask=False,
+                                     masked_self_att=False,
                                      output_probs=False,
                                      vocab_size=vocab_size,
+                                     pad_idx=pad_idx,
                                      support_mask=tgt_support_mask)
         case TransformerType.DECODER_ONLY:
             return TransformerOneSeq(config,
                                      num_layers=config.arch.num_decoder_layers,
-                                     use_mask=True,
+                                     masked_self_att=True,
                                      output_probs=True,
                                      vocab_size=vocab_size,
+                                     pad_idx=pad_idx,
                                      support_mask=tgt_support_mask)
         case TransformerType.CUSTOM_TWO_SEQ:
             return TransformerTwoSeq(config,
                                      num_enc_layers=config.arch.num_encoder_layers,
-                                     use_mask_enc=config.arch.use_masked_att_encoder,
+                                     masked_self_att_enc=config.arch.use_masked_att_encoder,
                                      num_dec_layers=config.arch.num_decoder_layers,
-                                     use_mask_dec=config.arch.use_masked_att_decoder,
+                                     masked_self_att_dec=config.arch.use_masked_att_decoder,
                                      output_probs=config.arch.output_probs,
                                      vocab_size=vocab_size,
+                                     pad_idx=pad_idx,
                                      tgt_support_mask=tgt_support_mask)
         case TransformerType.CUSTOM_ONE_SEQ:
             return TransformerOneSeq(config,
                                      num_layers=config.arch.num_decoder_layers,
-                                     use_mask=config.arch.use_masked_att_decoder,
+                                     masked_self_att=config.arch.use_masked_att_decoder,
                                      output_probs=config.arch.output_probs,
                                      vocab_size=vocab_size,
+                                     pad_idx=pad_idx,
                                      support_mask=tgt_support_mask)
 
 class TransformerTwoSeq(torch.nn.Module):
 
-    def __init__(self, config, num_enc_layers, use_mask_enc, num_dec_layers, use_mask_dec, output_probs, vocab_size, tgt_support_mask=None):
+    def __init__(self, config, num_enc_layers, masked_self_att_enc, num_dec_layers, masked_self_att_dec, output_probs, vocab_size, pad_idx, tgt_support_mask=None):
         super().__init__()
+        self.pad_idx = pad_idx
+
         self.output_probs = output_probs
         if self.output_probs:
             if tgt_support_mask == None:
@@ -358,25 +371,28 @@ class TransformerTwoSeq(torch.nn.Module):
         self.encoder    = EncoderOrDecoder(config,
                                            num_layers=num_enc_layers,
                                            take_two_seqs=False,
-                                           use_mask=use_mask_enc)
+                                           masked_self_att=masked_self_att_enc)
         self.decoder    = EncoderOrDecoder(config,
                                            num_layers=num_dec_layers,
                                            take_two_seqs=True,
-                                           use_mask=use_mask_dec)
+                                           masked_self_att=masked_self_att_dec)
 
     # src: [batch, src_seq]
     # tgt: [batch, tgt_seq]
     # ret: [batch, tgt_seq, vocab_size]
     def forward(self, src, tgt):
+        src_pad_mask = get_pad_mask(src, self.pad_idx)
+        tgt_pad_mask = get_pad_mask(tgt, self.pad_idx)
+
         src_embed  = self.embedding(src)
         src_embed += self.positional(src_embed)
         src_input  = self.dropout(src_embed)
-        src_output = self.encoder(src_input)
+        src_output = self.encoder(src_input, src_pad_mask)
 
         tgt_embed  = self.embedding(tgt)
         tgt_embed += self.positional(tgt_embed)
         tgt_input  = self.dropout(tgt_embed)
-        tgt_output = self.decoder(tgt_input, src_output)
+        tgt_output = self.decoder(tgt_input, tgt_pad_mask, src_output, src_pad_mask)
         if not self.output_probs:
             return tgt_output
         else:
@@ -387,8 +403,10 @@ class TransformerTwoSeq(torch.nn.Module):
 
 class TransformerOneSeq(torch.nn.Module):
 
-    def __init__(self, config, num_layers, use_mask, output_probs, vocab_size, support_mask=None):
+    def __init__(self, config, num_layers, masked_self_att, output_probs, vocab_size, pad_idx, support_mask=None):
         super().__init__()
+        self.pad_idx = pad_idx
+
         self.output_probs = output_probs
         if self.output_probs:
             if support_mask == None:
@@ -403,15 +421,17 @@ class TransformerOneSeq(torch.nn.Module):
         self.xxcoder    = EncoderOrDecoder(config,
                                            num_layers=num_layers,
                                            take_two_seqs=False,
-                                           use_mask=use_mask)
+                                           masked_self_att=masked_self_att)
 
     # seq: [batch, seq]
     # ret: [batch, seq, vocab_size]
     def forward(self, seq):
+        pad_mask = get_pad_mask(seq, self.pad_idx)
+
         seq_embed  = self.embedding(seq)
         seq_embed += self.positional(seq_embed)
         seq_input  = self.dropout(seq_embed)
-        seq_output = self.xxcoder(seq_input)
+        seq_output = self.xxcoder(seq_input, pad_mask)
         if not self.output_probs:
             return seq_output
         else:
@@ -419,3 +439,8 @@ class TransformerOneSeq(torch.nn.Module):
             seq_logits_masked = seq_logits + self.support_mask
             seq_probs = torch.nn.functional.log_softmax(seq_logits_masked, dim=-1)
             return seq_probs
+
+# seq:  [batch, seq_len]
+# mask: [batch, 1, seq_len]
+def get_pad_mask(seq, pad_idx):
+    return torch.zeros_like(seq).type(torch.float).masked_fill(seq == pad_idx, float("-inf")).unsqueeze(1)

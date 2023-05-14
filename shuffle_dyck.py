@@ -28,7 +28,7 @@ class ShuffleDyckRecognizer():
         config.arch.pos_enc_type = PositionalEncodingType.NONE
         config.arch.norm_type = NormType.NONE
 
-        t = transformer.get_transformer(config, vocab_size)
+        t = transformer.get_transformer(config, vocab_size, pad_idx=-1)
 
         emb = torch.zeros(2*k, 2*k)
         for j in range(k):

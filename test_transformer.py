@@ -194,31 +194,33 @@ class TestMultiHeadAttention(unittest.TestCase):
         mha = MultiHeadAttention(20, 8, qk_dim=4, v_dim=4)
 
     def testShape(self):
-        ni = float("-inf")
-        mask = torch.tensor([[1, ni, ni, ni, ni],
-                             [1, 1,  ni, ni, ni],
-                             [1, 1,  1,  ni, ni],
-                             [1, 1,  1,  1,  ni],
-                             [1, 1,  1,  1,   1]])
         x = torch.rand(100, 5, 64)
         y = torch.rand(100, 20, 64)
+        xmask1 = torch.rand(100, 1, 5)
+        xmask2 = torch.rand(100, 5, 5)
+        xymask1 = torch.rand(100, 1, 20)
+        xymask2 = torch.rand(100, 5, 20)
 
         # one head
         mha = MultiHeadAttention(64,1)
-        out = mha(x, x, x)        # self attention
+        out = mha(x, x, x, xmask1)
         self.assertEqual(out.shape, (100,5,64))
-        out = mha(x, x, x, mask)  # masked self attention
+        out = mha(x, x, x, xmask2)
         self.assertEqual(out.shape, (100,5,64))
-        out = mha(x, y, y)        # cross attention
+        out = mha(x, y, y, xymask1)
+        self.assertEqual(out.shape, (100,5,64))
+        out = mha(x, y, y, xymask2)
         self.assertEqual(out.shape, (100,5,64))
 
         # multiple heads
         mha = MultiHeadAttention(64,8)
-        out = mha(x, x, x)        # self attention
+        out = mha(x, x, x, xmask1)
         self.assertEqual(out.shape, (100,5,64))
-        out = mha(x, x, x, mask)  # masked self attention
+        out = mha(x, x, x, xmask2)
         self.assertEqual(out.shape, (100,5,64))
-        out = mha(x, y, y)        # cross attention
+        out = mha(x, y, y, xymask1)
+        self.assertEqual(out.shape, (100,5,64))
+        out = mha(x, y, y, xymask2)
         self.assertEqual(out.shape, (100,5,64))
 
     def testMask(self):
@@ -229,13 +231,13 @@ class TestMultiHeadAttention(unittest.TestCase):
         mha.proj_out.weight = torch.nn.Parameter(torch.eye(4))
 
         ni = float("-inf")
-        mask = torch.tensor([[1, ni, ni, ni, ni],
-                             [1, 1,  ni, ni, ni],
-                             [1, 1,  1,  ni, ni],
-                             [1, 1,  1,  1,  ni],
-                             [1, 1,  1,  1,   1]])
+        mask = torch.tensor([[[1, ni, ni, ni, ni],
+                              [1, 1,  ni, ni, ni],
+                              [1, 1,  1,  ni, ni],
+                              [1, 1,  1,  1,  ni],
+                              [1, 1,  1,  1,   1]]])
         input_tensor = torch.rand(5, 4).unsqueeze(0)
-        output_tensor = mha(input_tensor, input_tensor, input_tensor, mask=mask)
+        output_tensor = mha(input_tensor, input_tensor, input_tensor, mask)
         self.assertTrue(torch.equal(output_tensor[0,0], input_tensor[0,0]))
 
     def testDropout(self):
@@ -244,7 +246,8 @@ class TestMultiHeadAttention(unittest.TestCase):
 
         input_tensor = torch.rand(100,5,64)
         correct_tensor = torch.zeros(100,5,64)
-        actual_tensor = mha(input_tensor, input_tensor, input_tensor)
+        mask = torch.zeros(100,1,5)
+        actual_tensor = mha(input_tensor, input_tensor, input_tensor, mask)
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
 
@@ -364,67 +367,41 @@ class TestLayer(unittest.TestCase):
     def testBadInput(self):
         x = torch.rand(100,10,512)
         y = torch.rand(100,20,512)
-        ymask = torch.triu(torch.full((20,20), float('-inf')), diagonal=1)
+        xmask = torch.rand(100,1,10)
+        ymask = torch.rand(100,1,20)
 
-        # encoder
-        el = Layer(self.config, take_two_seqs=False, use_mask=False)
+        # one sequence
+        l = Layer(self.config, take_two_seqs=False)
         with self.assertRaises(ValueError):
-            out = el(y, mask=ymask)
+            out = l(y, ymask, x, xmask)
         with self.assertRaises(ValueError):
-            out = el(y, x)
+            out = l(y, ymask, x)
         with self.assertRaises(ValueError):
-            out = el(y, x, ymask)
+            out = l(y, ymask, prev_mask=xmask)
 
-        # decoder only
-        dol = Layer(self.config, take_two_seqs=False, use_mask=True)
+        # two sequence
+        l = Layer(self.config, take_two_seqs=True)
         with self.assertRaises(ValueError):
-            out = dol(y)
+            out = l(y, ymask)
         with self.assertRaises(ValueError):
-            out = dol(y, x)
+            out = l(y, ymask, x)
         with self.assertRaises(ValueError):
-            out = dol(y, x, ymask)
-
-        # ???
-        weirdl = Layer(self.config, take_two_seqs=True, use_mask=False)
-        with self.assertRaises(ValueError):
-            out = weirdl(y)
-        with self.assertRaises(ValueError):
-            out = weirdl(y, mask=ymask)
-        with self.assertRaises(ValueError):
-            out = weirdl(y, x, ymask)
-
-        # decoder
-        dl = Layer(self.config, take_two_seqs=True, use_mask=True)
-        with self.assertRaises(ValueError):
-            out = dl(y)
-        with self.assertRaises(ValueError):
-            out = dl(y, mask=ymask)
-        with self.assertRaises(ValueError):
-            out = dl(y, x)
+            out = l(y, ymask, prev_mask=xmask)
 
     def testShape(self):
         x = torch.rand(100,10,512)
         y = torch.rand(100,20,512)
-        ymask = torch.triu(torch.full((20,20), float('-inf')), diagonal=1)
+        xmask = torch.rand(100,1,10)
+        ymask = torch.rand(100,1,20)
 
-        # encoder
-        el = Layer(self.config, take_two_seqs=False, use_mask=False)
-        out = el(y)
+        # one sequence
+        l = Layer(self.config, take_two_seqs=False)
+        out = l(y, ymask)
         self.assertEqual(out.shape, (100,20,512))
 
-        # decoder only
-        dol = Layer(self.config, take_two_seqs=False, use_mask=True)
-        out = dol(y, mask=ymask)
-        self.assertEqual(out.shape, (100,20,512))
-
-        # ???
-        weirdl = Layer(self.config, take_two_seqs=True, use_mask=False)
-        out = weirdl(y, x)
-        self.assertEqual(out.shape, (100,20,512))
-
-        # decoder
-        dl = Layer(self.config, take_two_seqs=True, use_mask=True)
-        out = dl(y, x, ymask)
+        # two sequence
+        l = Layer(self.config, take_two_seqs=True)
+        out = l(y, ymask, x, xmask)
         self.assertEqual(out.shape, (100,20,512))
 
 
@@ -434,54 +411,42 @@ class TestEncoderOrDecoder(unittest.TestCase):
     def setUp(self):
         self.config = read_config("configuration.toml")
 
-    def testBadInput(self):
-        x = torch.rand(50,10,512)
-        y = torch.rand(50,20,512)
-
-        # encoder
-        e = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, use_mask=False)
-        with self.assertRaises(ValueError):
-            out = e(y, x)
-
-        # decoder
-        d = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
-        with self.assertRaises(ValueError):
-            out = d(y)
-
     def testShape(self):
         x = torch.rand(50,10,512)
         y = torch.rand(50,20,512)
+        xmask = torch.rand(50,1,10)
+        ymask = torch.rand(50,1,20)
 
         # encoder
-        e = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, use_mask=False)
-        out = e(y)
+        e = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, masked_self_att=False)
+        out = e(y, ymask)
         self.assertEqual(out.shape, (50,20,512))
 
         # decoder only
-        do = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, use_mask=True)
-        out = do(y)
+        do = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=False, masked_self_att=True)
+        out = do(y, ymask)
         self.assertEqual(out.shape, (50,20,512))
 
         # ???
-        weird = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=False)
-        out = weird(y, x)
+        weird = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, masked_self_att=False)
+        out = weird(y, ymask, x, xmask)
         self.assertEqual(out.shape, (50,20,512))
 
         # decoder
-        d = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
-        out = d(y, x)
+        d = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, masked_self_att=True)
+        out = d(y, ymask, x, xmask)
         self.assertEqual(out.shape, (50,20,512))
 
         # prenorm
         self.config.arch.pre_norm = True
-        d_pre = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
-        out = d_pre(y, x)
+        d_pre = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, masked_self_att=True)
+        out = d_pre(y, ymask, x, xmask)
         self.assertEqual(out.shape, (50,20,512))
 
         # postnorm
         self.config.arch.pre_norm = False
-        d_post = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
-        out = d_post(y, x)
+        d_post = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, masked_self_att=True)
+        out = d_post(y, ymask, x, xmask)
         self.assertEqual(out.shape, (50,20,512))
 
 
@@ -495,22 +460,22 @@ class TestTransformer(unittest.TestCase):
         x = torch.randint(high=1000,size=(5,10))
         y = torch.randint(high=1000,size=(5,20))
 
-        t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=False, vocab_size=1000, tgt_support_mask=None)
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=True, num_dec_layers=6, masked_self_att_dec=False, output_probs=False, vocab_size=1000, pad_idx=0, tgt_support_mask=None)
         out = t(x, y)
         self.assertEqual(out.shape, (5,20,512))
 
-        t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=True, vocab_size=1000, tgt_support_mask=None)
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=True, num_dec_layers=6, masked_self_att_dec=False, output_probs=True, vocab_size=1000, pad_idx=0, tgt_support_mask=None)
         out = t(x, y)
         self.assertEqual(out.shape, (5,20,1000))
 
     def testOneSeqShape(self):
         y = torch.randint(high=1000,size=(5,20))
 
-        t = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=False, vocab_size=1000, support_mask=None)
+        t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=False, vocab_size=1000, pad_idx=0, support_mask=None)
         out = t(y)
         self.assertEqual(out.shape, (5,20,512))
 
-        t = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=True, vocab_size=1000, support_mask=None)
+        t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=True, vocab_size=1000, pad_idx=0, support_mask=None)
         out = t(y)
         self.assertEqual(out.shape, (5,20,1000))
 
@@ -519,7 +484,7 @@ class TestTransformer(unittest.TestCase):
         y = torch.randint(high=1000,size=(5,20))
 
         self.config.arch.transformer_type = TransformerType.ENCODER_DECODER
-        t = get_transformer(self.config, vocab_size=1000, tgt_support_mask=None)
+        t = get_transformer(self.config, vocab_size=1000, pad_idx=0, tgt_support_mask=None)
         out = t(x, y)
         self.assertEqual(out.shape, (5,20,1000))
 
@@ -527,7 +492,7 @@ class TestTransformer(unittest.TestCase):
         x = torch.randint(high=1000,size=(5,10))
 
         self.config.arch.transformer_type = TransformerType.ENCODER_ONLY
-        t = get_transformer(self.config, vocab_size=1000, tgt_support_mask=None)
+        t = get_transformer(self.config, vocab_size=1000, pad_idx=0, tgt_support_mask=None)
         out = t(x)
         self.assertEqual(out.shape, (5,10,512))
 
@@ -535,38 +500,47 @@ class TestTransformer(unittest.TestCase):
         y = torch.randint(high=1000,size=(5,20))
 
         self.config.arch.transformer_type = TransformerType.DECODER_ONLY
-        t = get_transformer(self.config, vocab_size=1000, tgt_support_mask=None)
+        t = get_transformer(self.config, vocab_size=1000, pad_idx=0, tgt_support_mask=None)
         out = t(y)
         self.assertEqual(out.shape, (5,20,1000))
+
+    def testGetPadMask(self):
+        seq = torch.tensor([[3,4,5,6,0,0],
+                            [0,2,0,0,1,0]])
+        ni = float("-inf")
+        correct_mask = torch.tensor([[[0.,0.,0.,0.,ni,ni]],
+                                     [[ni,0.,ni,ni,0.,ni]]])
+        actual_mask = get_pad_mask(seq, pad_idx=0)
+        self.assertTrue(torch.equal(actual_mask, correct_mask))
 
     def testDropout(self):
         self.config.train.dropout = 1.0
         self.config.train.ff_dropout = 0.0
         self.config.train.att_dropout = 0.0
 
-        x1 = torch.randint(high=30,size=(5,10))
-        x2 = torch.randint(high=30,size=(5,10))
-        y1 = torch.randint(high=30,size=(5,20))
-        y2 = torch.randint(high=30,size=(5,20))
+        x1 = torch.randint(low=1,high=30,size=(5,10))
+        x2 = torch.randint(low=1,high=30,size=(5,10))
+        y1 = torch.randint(low=1,high=30,size=(5,20))
+        y2 = torch.randint(low=1,high=30,size=(5,20))
 
-        t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=False, vocab_size=30, tgt_support_mask=None)
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=True, num_dec_layers=6, masked_self_att_dec=False, output_probs=False, vocab_size=30, pad_idx=0, tgt_support_mask=None)
         t.train()
         out1 = t(x1, y1)
         out2 = t(x2, y2)
         self.assertTrue(torch.equal(out1, out2))
 
-        t = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=False, vocab_size=30, support_mask=None)
+        t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=False, vocab_size=30, pad_idx=0, support_mask=None)
         t.train()
         out1 = t(y1)
         out2 = t(y2)
         self.assertTrue(torch.equal(out1, out2))
 
     def testTgtVocabMask(self):
-        x = torch.randint(high=5,size=(4,3))
-        y = torch.randint(high=5,size=(4,3))
+        x = torch.randint(low=1,high=5,size=(4,3))
+        y = torch.randint(low=1,high=5,size=(4,3))
         tgt_support_mask = torch.tensor([1.0, 1.0, 0.0, 1.0, 0.0])
 
-        t = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=False, num_dec_layers=6, use_mask_dec=True, output_probs=True, vocab_size=5, tgt_support_mask=tgt_support_mask)
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=False, num_dec_layers=6, masked_self_att_dec=True, output_probs=True, vocab_size=5, pad_idx=0, tgt_support_mask=tgt_support_mask)
         out = t(x, y)
         self.assertEqual(out.shape, (4,3,5))
         self.assertTrue(out[0,0,0] > float('-inf'))
@@ -575,7 +549,7 @@ class TestTransformer(unittest.TestCase):
         self.assertTrue(out[0,0,3] > float('-inf'))
         self.assertTrue(out[0,0,4] == float('-inf'))
 
-        t = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=True, vocab_size=5, support_mask=tgt_support_mask)
+        t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=True, vocab_size=5, pad_idx=0, support_mask=tgt_support_mask)
         out = t(y)
         self.assertEqual(out.shape, (4,3,5))
         self.assertTrue(out[0,0,0] > float('-inf'))

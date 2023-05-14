@@ -160,12 +160,14 @@ class TestTransformerSameOnGPU(unittest.TestCase):
             return
 
         ni = float("-inf")
-        mask_cpu = torch.tensor([[1, ni, ni, ni, ni],
-                                 [1, 1,  ni, ni, ni],
-                                 [1, 1,  1,  ni, ni],
-                                 [1, 1,  1,  1,  ni],
-                                 [1, 1,  1,  1,   1]])
-        mask_gpu = mask_cpu.to("cuda:0")
+        xmask_cpu = torch.tensor([[[1, ni, ni, ni, ni],
+                                   [1, 1,  ni, ni, ni],
+                                   [1, 1,  1,  ni, ni],
+                                   [1, 1,  1,  1,  ni],
+                                   [1, 1,  1,  1,   1]]])
+        xmask_gpu = xmask_cpu.to("cuda:0")
+        xymask_cpu = torch.rand(100, 1, 5)
+        xymask_gpu = xymask_cpu.to("cuda:0")
         x_cpu = torch.rand(100, 5, 64)
         x_gpu = x_cpu.to("cuda:0")
         y_cpu = torch.rand(100, 20, 64)
@@ -174,16 +176,12 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         mha_cpu = MultiHeadAttention(64, 8, dropout=0.0)
         mha_gpu = copy.deepcopy(mha_cpu).to("cuda:0")
         # self attention
-        out_cpu = mha_cpu(x_cpu, x_cpu, x_cpu)
-        out_gpu = mha_gpu(x_gpu, x_gpu, x_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
-        # masked self attention
-        out_cpu = mha_cpu(x_cpu, x_cpu, x_cpu, mask_cpu)
-        out_gpu = mha_gpu(x_gpu, x_gpu, x_gpu, mask_gpu)
+        out_cpu = mha_cpu(x_cpu, x_cpu, x_cpu, xmask_cpu)
+        out_gpu = mha_gpu(x_gpu, x_gpu, x_gpu, xmask_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
         # cross attention
-        out_cpu = mha_cpu(x_cpu, y_cpu, y_cpu)
-        out_gpu = mha_gpu(x_gpu, y_gpu, y_gpu)
+        out_cpu = mha_cpu(y_cpu, x_cpu, x_cpu, xymask_cpu)
+        out_gpu = mha_gpu(y_gpu, x_gpu, x_gpu, xymask_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
 
     def testSublayerConnection(self):
@@ -244,16 +242,18 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         x_gpu = x_cpu.to("cuda:0")
         y_cpu = torch.rand(100,20,512)
         y_gpu = y_cpu.to("cuda:0")
-        ymask_cpu = torch.triu(torch.full((20,20), float('-inf')), diagonal=1)
+        xymask_cpu = torch.rand(100,20,10)
+        xymask_gpu = xymask_cpu.to("cuda:0")
+        ymask_cpu = torch.rand(100,20,20)
         ymask_gpu = ymask_cpu.to("cuda:0")
         self.config.train.dropout = 0.0
         self.config.train.att_dropout = 0.0
         self.config.train.ff_dropout = 0.0
 
-        l_cpu = Layer(self.config, take_two_seqs=True, use_mask=True)
+        l_cpu = Layer(self.config, take_two_seqs=True)
         l_gpu = copy.deepcopy(l_cpu).to("cuda:0")
-        out_cpu = l_cpu(y_cpu, x_cpu, ymask_cpu)
-        out_gpu = l_gpu(y_gpu, x_gpu, ymask_gpu)
+        out_cpu = l_cpu(y_cpu, ymask_cpu, x_cpu, xymask_cpu)
+        out_gpu = l_gpu(y_gpu, ymask_gpu, x_gpu, xymask_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
 
     def testEncoderOrDecoder(self):
@@ -264,15 +264,19 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         x_gpu = x_cpu.to("cuda:0")
         y_cpu = torch.rand(100,20,512)
         y_gpu = y_cpu.to("cuda:0")
+        xmask_cpu = torch.rand(100,1,10)
+        xmask_gpu = xmask_cpu.to("cuda:0")
+        ymask_cpu = torch.rand(100,1,20)
+        ymask_gpu = ymask_cpu.to("cuda:0")
         self.config.train.dropout = 0.0
         self.config.train.att_dropout = 0.0
         self.config.train.ff_dropout = 0.0
 
         # decoder
-        eod_cpu = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, use_mask=True)
+        eod_cpu = EncoderOrDecoder(self.config, num_layers=6, take_two_seqs=True, masked_self_att=True)
         eod_gpu = copy.deepcopy(eod_cpu).to("cuda:0")
-        out_cpu = eod_cpu(y_cpu, x_cpu)
-        out_gpu = eod_gpu(y_gpu, x_gpu)
+        out_cpu = eod_cpu(y_cpu, ymask_cpu, x_cpu, xmask_cpu)
+        out_gpu = eod_gpu(y_gpu, ymask_gpu, x_gpu, xmask_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
 
     def testTransformerTwoSeq(self):
@@ -287,10 +291,10 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         self.config.train.att_dropout = 0.0
         self.config.train.ff_dropout = 0.0
 
-        t_cpu = TransformerTwoSeq(self.config, num_enc_layers=6, use_mask_enc=True, num_dec_layers=6, use_mask_dec=False, output_probs=True, vocab_size=1000, tgt_support_mask=None)
+        t_cpu = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=True, num_dec_layers=6, masked_self_att_dec=False, output_probs=True, vocab_size=1000, pad_idx=0, tgt_support_mask=None)
         t_gpu = copy.deepcopy(t_cpu).to("cuda:0")
-        out_cpu = t_cpu(y_cpu, x_cpu)
-        out_gpu = t_gpu(y_gpu, x_gpu)
+        out_cpu = t_cpu(x_cpu, y_cpu)
+        out_gpu = t_gpu(x_gpu, y_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.000001, rtol=0)
 
     def testTransformerOneSeq(self):
@@ -303,7 +307,7 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         self.config.train.att_dropout = 0.0
         self.config.train.ff_dropout = 0.0
 
-        t_cpu = TransformerOneSeq(self.config, num_layers=6, use_mask=True, output_probs=True, vocab_size=1000, support_mask=None)
+        t_cpu = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=True, vocab_size=1000, pad_idx=0, support_mask=None)
         t_gpu = copy.deepcopy(t_cpu).to("cuda:0")
         out_cpu = t_cpu(y_cpu)
         out_gpu = t_gpu(y_gpu)
