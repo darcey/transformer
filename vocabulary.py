@@ -6,11 +6,11 @@ from collections import Counter
 import torch
 
 # Guiding principle:
-#   These tokens are always referred to using either their enum name
-#   (e.g. SpecialTokens.PAD) or their index in a particular vocabulary.
-#   The string values are only used when printing.
-#   However, we make sure the vocabulary doesn't have any tokens which
-#   match the string values, to avoid bugs and confusion.
+#   In places where a token would normally be referred to
+#   using its string value, special tokens are just referred to
+#   as SpecialToken.[tok]. The string values are only used during
+#   printing. However, we do make sure there is no overlap between
+#   the non-special tokens and the special tokens' string values.
 class SpecialTokens(Enum):
     PAD = "<<PAD>>"
     UNK = "<<UNK>>"
@@ -19,10 +19,10 @@ class SpecialTokens(Enum):
 
 class Vocabulary:
 
-    # assumes src, tgt are lists of lists of tokens
     def __init__(self):
         self.size = 0
 
+    # assumes src, tgt are lists of lists of tokens
     def initialize_from_data(self, src_data, tgt_data):
         # build the token vocabulary from the data
         src_toks = Counter()
@@ -116,37 +116,33 @@ class Vocabulary:
 
     def pad_idx(self):
         return self.tok_to_idx(SpecialTokens.PAD)
-
     def unk_idx(self):
         return self.tok_to_idx(SpecialTokens.UNK)
-
     def bos_idx(self):
         return self.tok_to_idx(SpecialTokens.BOS)
-
     def eos_idx(self):
         return self.tok_to_idx(SpecialTokens.EOS)
 
-    # assumes t is either a single token or a list of tokens
+    # assumes data is a list of list of tokens
+    def tok_to_idx_data(self, data):
+        return [[self.tok_to_idx(tok) for tok in sent] for sent in data]
+    # assumes data is a list of list of indices
+    def idx_to_tok_data(self, data):
+        return [[self.idx_to_tok(idx) for idx in sent] for sent in data]
+    # assumes t is a single token
     def tok_to_idx(self, t):
-        if isinstance(t, list):
-            return [self.t_to_i[tok] for tok in t]
-        else:
-            return self.t_to_i[t]
-
-    # assumes i is either a single index or a list of indices
+        return self.t_to_i[t]
+    # assumes i is a single index
     def idx_to_tok(self, i):
-        if isinstance(i, list):
-            return [self.i_to_t[idx] for idx in i]
-        else:
-            return self.i_to_t[i]
+        return self.i_to_t[i]
 
-    # assumes sent is a list of tokens
-    def unk_src(self, sent):
-        return [tok if tok in self.src_toks else SpecialTokens.UNK for tok in sent]
-
-    # assumes sent is a list of tokens
-    def unk_tgt(self, sent):
-        return [tok if tok in self.tgt_toks else SpecialTokens.UNK for tok in sent]
+    # assumes data is a list of lists of tokens
+    def unk_data(self, data, src=True):
+        tok_set = self.src_toks if src else self.tgt_toks
+        return [[self.unk_tok(tok, tok_set) for tok in sent] for sent in data]
+    # assumes tok is a single token
+    def unk_tok(self, tok, tok_set):
+        return tok if tok in tok_set else SpecialTokens.UNK
 
     def get_tgt_support_mask(self):
         tgt_mask = [self.idx_to_tok(i) in self.tgt_toks for i in range(len(self))]

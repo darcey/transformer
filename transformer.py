@@ -3,7 +3,7 @@
 
 import math
 import torch
-from configuration import *
+from configuration import TransformerType, PositionalEncodingType, NormType
 
 
 

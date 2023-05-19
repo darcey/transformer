@@ -7,7 +7,7 @@
 import os
 import math
 import torch
-from configuration import *
+from configuration import LearningRateStrategy
 
 class Trainer():
 
@@ -42,7 +42,6 @@ class Trainer():
         self.word_dropout_prob = config.train.word_dropout
 
         self.device = device
-        self.model.to(device)
         self.support_mask = self.support_mask.to(device)
         self.label_smoothing_counts = self.label_smoothing_counts.to(device)
 
@@ -71,10 +70,10 @@ class Trainer():
 
                 # get the batch
                 batch = train.get_batch()
-                self.num_toks += batch["num_tgt_toks"]
-                src = batch["src"].to(self.device)
-                tgt_in = batch["tgt_in"].to(self.device)
-                tgt_out = batch["tgt_out"].to(self.device)
+                self.num_toks += batch.num_tgt_toks
+                src = batch.src.to(self.device)
+                tgt_in = batch.tgt_in.to(self.device)
+                tgt_out = batch.tgt_out.to(self.device)
 
                 # word dropout
                 src = self.word_dropout(src, self.word_dropout_prob)
@@ -116,9 +115,9 @@ class Trainer():
             for batch_num in range(len(data)):
                 # get the batch
                 batch = data.get_batch()
-                src = batch["src"].to(self.device)
-                tgt_in = batch["tgt_in"].to(self.device)
-                tgt_out = batch["tgt_out"].to(self.device)
+                src = batch.src.to(self.device)
+                tgt_in = batch.tgt_in.to(self.device)
+                tgt_out = batch.tgt_out.to(self.device)
 
                 # get the log probability of the batch
                 log_probs = self.model(src, tgt_in)
@@ -133,7 +132,6 @@ class Trainer():
 
     def maybe_save_checkpoint(self):
         if self.dev_ppls[-1] == min(self.dev_ppls):
-
             filename = f"model.{self.num_epochs:0{len(str(self.max_epochs))}d}:{self.dev_ppls[-1]}"
             filepath = os.path.join(self.checkpoint_dir, filename)
             torch.save(self.model.state_dict(), filepath)

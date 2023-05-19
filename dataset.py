@@ -1,6 +1,7 @@
-# TODO(darcey): write the seq2seq test dataset code
+# TODO(darcey): update the Seq2SeqTranslateBatch format once the generator returns more stuff
+# TODO(darcey): is sort_by_tgt_only actually necessary?
 
-# TODO(darcey): convert batch from dict to object so it can be worked with more easily
+# TODO(darcey): improve code sharing between dataset classes
 # TODO(darcey): think about adding code for Toan and Kenton's data augmentation strategy that glues multiple sentences together before training
 # TODO(darcey): write dataset classes for classification tasks
 
@@ -10,17 +11,41 @@ import torch
 
 
 
+class Seq2SeqTrainBatch:
+
+    def __init__(self, src, tgt_in, tgt_out, num_src_toks, num_tgt_toks):
+        self.src          = src
+        self.tgt_in       = tgt_in
+        self.tgt_out      = tgt_out
+        self.num_src_toks = num_src_toks
+        self.num_tgt_toks = num_tgt_toks
+
+class Seq2SeqTranslateBatch:
+
+    def __init__(self, src, orig_idxs):
+        self.src       = src
+        self.orig_idxs = orig_idxs
+
+    def with_translation(self, tgt_all):
+        new_batch = Seq2SeqTranslateBatch(self.src, self.orig_idxs)
+        new_batch.tgt_all = tgt_all
+        return new_batch
+
+
+
 class Seq2SeqTrainDataset:
 
     # assumes src, tgt are lists of lists of token indices
-    # sorts by tgt length because that determines number of training steps
-    def __init__(self, src, tgt, vocab, batch_size, sort_by_tgt_only=False, randomize=False):
-        self.vocab = vocab
+    def __init__(self, src, tgt, vocab, toks_per_batch, sort_by_tgt_only=False, randomize=False):
+        self.pad_idx = vocab.pad_idx()
+        self.bos_idx = vocab.bos_idx()
+        self.eos_idx = vocab.eos_idx()
+
         if sort_by_tgt_only:
             sorted_src, sorted_tgt = self.sort_by_tgt_len(src, tgt)
         else:
             sorted_src, sorted_tgt = self.sort_by_both_lens(src, tgt)
-        self.batches = self.make_batches(sorted_src, sorted_tgt, batch_size)
+        self.batches = self.make_batches(sorted_src, sorted_tgt, toks_per_batch)
         self.randomize = randomize
         self.num_iters = 0
         self.batch_iter = self.get_batch_iter()
@@ -49,7 +74,7 @@ class Seq2SeqTrainDataset:
 
         return sorted2_src, sorted2_tgt
 
-    def make_batches(self, src, tgt, batch_size):
+    def make_batches(self, src, tgt, toks_per_batch):
         batches = []
 
         curr_batch = []
@@ -59,7 +84,7 @@ class Seq2SeqTrainDataset:
             curr_batch.append((src_sent, tgt_sent))
             curr_src_toks += len(src_sent) + 1  # the +1 is for BOS/EOS
             curr_tgt_toks += len(tgt_sent) + 1
-            if (curr_src_toks >= batch_size) or (curr_tgt_toks >= batch_size):
+            if (curr_src_toks >= toks_per_batch) or (curr_tgt_toks >= toks_per_batch):
                 batches.append(self.make_one_batch(curr_batch))
                 curr_batch = []
                 curr_src_toks = 0
@@ -78,9 +103,9 @@ class Seq2SeqTrainDataset:
         tgt_in_tensor  = torch.full((num_sents, max_tgt_len+1), 0)
         tgt_out_tensor = torch.full((num_sents, max_tgt_len+1), 0)
 
-        PAD = self.vocab.pad_idx()
-        BOS = self.vocab.bos_idx()
-        EOS = self.vocab.eos_idx()
+        PAD = self.pad_idx
+        BOS = self.bos_idx
+        EOS = self.eos_idx
         for i, (src_sent, tgt_sent) in enumerate(sent_list):
             src_tensor[i]     = torch.tensor(src_sent + [EOS] + [PAD]*(max_src_len - len(src_sent)))
             tgt_in_tensor[i]  = torch.tensor([BOS] + tgt_sent + [PAD]*(max_tgt_len - len(tgt_sent)))
@@ -89,13 +114,7 @@ class Seq2SeqTrainDataset:
         num_src_toks = torch.sum(src_tensor != PAD)
         num_tgt_toks = torch.sum(tgt_in_tensor != PAD)
 
-        return {
-            "src": src_tensor,
-            "tgt_in": tgt_in_tensor,
-            "tgt_out": tgt_out_tensor,
-            "num_src_toks": num_src_toks,
-            "num_tgt_toks": num_tgt_toks,
-        }
+        return Seq2SeqTrainBatch(src_tensor, tgt_in_tensor, tgt_out_tensor, num_src_toks, num_tgt_toks)
 
     def get_batch(self):
         try:
@@ -115,13 +134,64 @@ class Seq2SeqTrainDataset:
 
 
 
-#class Seq2SeqTranslateDataset():
-#    def __init__(self, src):
-        # sort src by length
-        # need to keep track of original idxs for organizing the translations
-        # (maybe include an option of whether it should be length batched or not? might want to do translation in dataset order so we can print intermediate results / clear the buffer, for cases with large # of samples)
-        # divide up into batches by number of concurrent beams
-        # need to consider very large (larger than one batch) numbers of samples; that should be dealt with during batching
-        # need iterator that gives the next batch
-        # need function that takes in translations and adds them to the ordered list of translations
-        # need to think about how this will interact with writing the translations to file
+class Seq2SeqTranslateDataset:
+
+    # assumes src is a list of lists of token indices
+    def __init__(self, src, vocab, sents_per_batch, in_order=False):
+        self.pad_idx = vocab.pad_idx()
+        self.eos_idx = vocab.eos_idx()
+
+        if not in_order:
+            src, orig_idxs = self.sort_by_len(src)
+        else:
+            orig_idxs = list(range(len(src)))
+        self.batches = self.make_batches(src, orig_idxs, sents_per_batch)
+
+    def __len__(self):
+        return len(self.batches)
+
+    def sort_by_len(self, src):
+        lens = [len(src_sent) for src_sent in src]
+        sorted_idxs = np.argsort(lens)
+        sorted_src = [src[i] for i in sorted_idxs]
+        orig_idxs = np.argsort(sorted_idxs)
+        return sorted_src, orig_idxs
+
+    def make_batches(self, src, orig_idxs, sents_per_batch):
+        batches = []
+        start_idx = 0
+        while start_idx < len(src):
+            end_idx = min(start_idx + sents_per_batch, len(src))
+            curr_batch = src[start_idx:end_idx]
+            curr_idxs = orig_idxs[start_idx:end_idx]
+            batches.append(self.make_one_batch(curr_batch, curr_idxs))
+            start_idx += sents_per_batch
+        return batches
+
+    def make_one_batch(self, src_list, orig_idxs):
+        num_sents = len(src_list)
+        max_len = max([len(src_sent) for src_sent in src_list])
+
+        PAD = self.pad_idx
+        EOS = self.eos_idx
+        src_tensor = torch.full((num_sents, max_len+1), 0)
+        for i, src_sent in enumerate(src_list):
+            src_tensor[i] = torch.tensor(src_sent + [EOS] + [PAD]*(max_len - len(src_sent)))
+
+        return Seq2SeqTranslateBatch(src_tensor, orig_idxs)
+
+    def unpad(self, gen):
+        tok_list = []
+        for tok in gen:
+            if tok == self.eos_idx:
+                break
+            tok_list.append(tok)
+        return tok_list
+
+    def restore_order(self, tgt, orig_idxs):
+        return [tgt[i] for i in orig_idxs]
+
+    def unbatch(self, batches):
+        all_tgts = [[self.unpad(gen) for gen in tgt_sent] for batch in batches for tgt_sent in batch.tgt_all.tolist()]
+        all_orig_idxs = [idx for batch in batches for idx in batch.orig_idxs]
+        return self.restore_order(all_tgts, all_orig_idxs)

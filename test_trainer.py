@@ -7,6 +7,7 @@ import unittest
 from tempfile import TemporaryDirectory
 from configuration import *
 from vocabulary import *
+from dataset import Seq2SeqTrainBatch
 from trainer import *
 
 
@@ -113,16 +114,8 @@ class TestPerplexity(unittest.TestCase):
                 tgt_out_1 = torch.tensor([[10,11,12,EOS,PAD],[10,11,12,13,EOS]])
                 tgt_out_2 = torch.tensor([[10,11,12,13,EOS,PAD],[10,11,12,13,14,EOS]])
 
-                self.batch1 = {
-                    "src": src_1,
-                    "tgt_in": tgt_in_1,
-                    "tgt_out": tgt_out_1,
-                }
-                self.batch2 = {
-                    "src": src_2,
-                    "tgt_in": tgt_in_2,
-                    "tgt_out": tgt_out_2,
-                }
+                self.batch1 = Seq2SeqTrainBatch(src_1, tgt_in_1, tgt_out_1, 0, 0)
+                self.batch2 = Seq2SeqTrainBatch(src_2, tgt_in_2, tgt_out_2, 0, 0)
 
                 self.use_batch_1 = True
             def __len__(self):

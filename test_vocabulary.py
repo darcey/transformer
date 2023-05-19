@@ -62,24 +62,26 @@ class TestVocabulary(unittest.TestCase):
             self.assertEqual(vocab.idx_to_tok(vocab.tok_to_idx(tok)), tok)
         for idx in range(len(vocab)):
             self.assertEqual(vocab.tok_to_idx(vocab.idx_to_tok(idx)), idx)
-        tok_list = list(vocab.special_toks | vocab.src_tgt_toks)
-        idx_list = list(range(len(vocab)))
-        self.assertEqual(vocab.idx_to_tok(vocab.tok_to_idx(tok_list)), tok_list)
-        self.assertEqual(vocab.tok_to_idx(vocab.idx_to_tok(idx_list)), idx_list)
+        self.assertEqual(vocab.idx_to_tok_data(vocab.tok_to_idx_data(self.fake_src)), self.fake_src)
+        self.assertEqual(vocab.idx_to_tok_data(vocab.tok_to_idx_data(self.fake_tgt)), self.fake_tgt)
 
     def testUnk(self):
         vocab = Vocabulary()
         vocab.initialize_from_data(self.fake_src, self.fake_tgt)
         unk = SpecialTokens.UNK
 
-        src_sent = ["the", "dog", "saw", "a", "rock", "in", "the", "arkpay"]
-        src_correct = ["the", "dog", "saw", unk, "rock", "in", "the", unk]
-        src_actual = vocab.unk_src(src_sent)
+        src_data = [["the", "dog", "saw", "a", "rock", "in", "the", "arkpay"],
+                    ["my", "dog", "barks"]]
+        src_correct = [["the", "dog", "saw", unk, "rock", "in", "the", unk],
+                       [unk, "dog", unk]]
+        src_actual = vocab.unk_data(src_data, src=True)
         self.assertEqual(src_actual, src_correct)
 
-        tgt_sent = ["the", "ogday", "awsay", "a", "ockray", "in", "the", "park"]
-        tgt_correct = ["the", "ogday", "awsay", unk, "ockray", "in", "the", unk]
-        tgt_actual = vocab.unk_tgt(tgt_sent)
+        tgt_data = [["the", "ogday", "awsay", "a", "ockray", "in", "the", "park"],
+                    ["ymay", "ogday", "arksbay"]]
+        tgt_correct = [["the", "ogday", "awsay", unk, "ockray", "in", "the", unk],
+                       [unk, "ogday", unk]]
+        tgt_actual = vocab.unk_data(tgt_data, src=False)
         self.assertEqual(tgt_actual, tgt_correct)
 
     def testTgtOutputMask(self):

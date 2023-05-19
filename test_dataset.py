@@ -1,8 +1,11 @@
+# TODO(darcey): replace real vocab class with mock
+
 import random
 import torch
 import unittest
 from dataset import *
 from vocabulary import *
+
 
 
 class TestSeq2SeqTrainDataset(unittest.TestCase):
@@ -14,7 +17,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testSortByTgtLenToyExample(self):
         src = [[1,2,3,4],[1,2,3,4,5],[1,2],[1,2,3]]
         tgt = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15]]
-        ds = Seq2SeqTrainDataset(src, tgt, self.vocab, batch_size=100)
+        ds = Seq2SeqTrainDataset(src, tgt, self.vocab, toks_per_batch=100)
         
         sorted_src_correct = [[1,2],[1,2,3,4,5],[1,2,3,4],[1,2,3]]
         sorted_tgt_correct = [[10,11,12],[10,11,12,13],[10,11,12,13,14],[10,11,12,13,14,15]]
@@ -25,7 +28,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testSortByBothLensToyExample(self):
         src = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,7,9]]
         tgt = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15],[10,11,12,14]]
-        ds = Seq2SeqTrainDataset(src, tgt, self.vocab, batch_size=100)
+        ds = Seq2SeqTrainDataset(src, tgt, self.vocab, toks_per_batch=100)
 
         sorted_src_correct = [[5,6],[5,6,7,9],[5,6,7,8,9],[5,6,7,8],[5,6,7]]
         sorted_tgt_correct = [[10,11,12],[10,11,12,14],[10,11,12,13],[10,11,12,13,14],[10,11,12,13,14,15]]
@@ -42,7 +45,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
             src_data.append([1]*src_length)
             tgt_data.append([1]*tgt_length)
 
-        ds = Seq2SeqTrainDataset(src_data, tgt_data, self.vocab, batch_size=100)
+        ds = Seq2SeqTrainDataset(src_data, tgt_data, self.vocab, toks_per_batch=100)
         sorted_src, sorted_tgt = ds.sort_by_both_lens(src_data, tgt_data)
 
         tgt_lens = [len(sent) for sent in sorted_tgt]
@@ -56,7 +59,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7]]
         tgt_sents = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15]]
         sent_list = list(zip(src_sents, tgt_sents))
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, batch_size=100)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, toks_per_batch=100)
         
         PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
         BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
@@ -74,16 +77,16 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
                                         [10,11,12,EOS,PAD,PAD,PAD],
                                         [10,11,12,13,14,15,EOS]])
         actual = ds.make_one_batch(sent_list)
-        self.assertTrue(torch.equal(actual["src"], src_correct))
-        self.assertTrue(torch.equal(actual["tgt_in"], tgt_in_correct))
-        self.assertTrue(torch.equal(actual["tgt_out"], tgt_out_correct))
-        self.assertEqual(actual["num_src_toks"], 18)
-        self.assertEqual(actual["num_tgt_toks"], 22)
+        self.assertTrue(torch.equal(actual.src, src_correct))
+        self.assertTrue(torch.equal(actual.tgt_in, tgt_in_correct))
+        self.assertTrue(torch.equal(actual.tgt_out, tgt_out_correct))
+        self.assertEqual(actual.num_src_toks, 18)
+        self.assertEqual(actual.num_tgt_toks, 22)
 
     def testMakeBatches(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
         tgt_sents = [[10,11,12],[10,11,12,13],[10,11,12,14],[10,11,12,13,14],[10,11],[10,12,13],[10,11,12,13,14,15]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, batch_size=8)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, toks_per_batch=8)
 
         PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
         BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
@@ -101,40 +104,40 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         tgt_out_correct_3 = torch.tensor([[10,11,EOS,PAD],[10,12,13,EOS]])
         tgt_out_correct_4 = torch.tensor([[10,11,12,13,14,15,EOS]])
 
-        actual = ds.make_batches(src_sents, tgt_sents, batch_size=8)
+        actual = ds.make_batches(src_sents, tgt_sents, toks_per_batch=8)
 
         self.assertEqual(len(actual), 4)
         # both src and tgt hit batch size
-        self.assertTrue(torch.equal(actual[0]["src"], src_correct_1))
-        self.assertTrue(torch.equal(actual[0]["tgt_in"], tgt_in_correct_1))
-        self.assertTrue(torch.equal(actual[0]["tgt_out"], tgt_out_correct_1))
-        self.assertEqual(actual[0]["num_src_toks"], 8)
-        self.assertEqual(actual[0]["num_tgt_toks"], 9)
+        self.assertTrue(torch.equal(actual[0].src, src_correct_1))
+        self.assertTrue(torch.equal(actual[0].tgt_in, tgt_in_correct_1))
+        self.assertTrue(torch.equal(actual[0].tgt_out, tgt_out_correct_1))
+        self.assertEqual(actual[0].num_src_toks, 8)
+        self.assertEqual(actual[0].num_tgt_toks, 9)
         # tgt hits batch size, src doesn't
-        self.assertTrue(torch.equal(actual[1]["src"], src_correct_2))
-        self.assertTrue(torch.equal(actual[1]["tgt_in"], tgt_in_correct_2))
-        self.assertTrue(torch.equal(actual[1]["tgt_out"], tgt_out_correct_2))
-        self.assertEqual(actual[1]["num_src_toks"], 7)
-        self.assertEqual(actual[1]["num_tgt_toks"], 11)
+        self.assertTrue(torch.equal(actual[1].src, src_correct_2))
+        self.assertTrue(torch.equal(actual[1].tgt_in, tgt_in_correct_2))
+        self.assertTrue(torch.equal(actual[1].tgt_out, tgt_out_correct_2))
+        self.assertEqual(actual[1].num_src_toks, 7)
+        self.assertEqual(actual[1].num_tgt_toks, 11)
         # src hits batch size, tgt doesn't
-        self.assertTrue(torch.equal(actual[2]["src"], src_correct_3))
-        self.assertTrue(torch.equal(actual[2]["tgt_in"], tgt_in_correct_3))
-        self.assertTrue(torch.equal(actual[2]["tgt_out"], tgt_out_correct_3))
-        self.assertEqual(actual[2]["num_src_toks"], 11)
-        self.assertEqual(actual[2]["num_tgt_toks"], 7)
+        self.assertTrue(torch.equal(actual[2].src, src_correct_3))
+        self.assertTrue(torch.equal(actual[2].tgt_in, tgt_in_correct_3))
+        self.assertTrue(torch.equal(actual[2].tgt_out, tgt_out_correct_3))
+        self.assertEqual(actual[2].num_src_toks, 11)
+        self.assertEqual(actual[2].num_tgt_toks, 7)
         # neither hits batch size
-        self.assertTrue(torch.equal(actual[3]["src"], src_correct_4))
-        self.assertTrue(torch.equal(actual[3]["tgt_in"], tgt_in_correct_4))
-        self.assertTrue(torch.equal(actual[3]["tgt_out"], tgt_out_correct_4))
-        self.assertEqual(actual[3]["num_src_toks"], 4)
-        self.assertEqual(actual[3]["num_tgt_toks"], 7)
+        self.assertTrue(torch.equal(actual[3].src, src_correct_4))
+        self.assertTrue(torch.equal(actual[3].tgt_in, tgt_in_correct_4))
+        self.assertTrue(torch.equal(actual[3].tgt_out, tgt_out_correct_4))
+        self.assertEqual(actual[3].num_src_toks, 4)
+        self.assertEqual(actual[3].num_tgt_toks, 7)
 
     def testInit(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
         tgt_sents = [[10,11,12],[10,11,12,13],[10,11,12,14],[10,11,12,13,14],[10,11],[10,12,13],[10,11,12,13,14,15]]
         # sorted src: [[5,6,7,8,9],[5,6],[5,6,7,8],[5,6,7],[5,6,8,9],[7,8],[5,6,9]]
         # sorted tgt: [[10,11],[10,11,12],[10,12,13],[10,11,12,14],[10,11,12,13],[10,11,12,13,14],[10,11,12,13,14,15]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, batch_size=8)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, toks_per_batch=8)
         
         PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
         BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
@@ -155,26 +158,26 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         actual = ds.batches
 
         self.assertEqual(len(actual), 4)
-        self.assertTrue(torch.equal(actual[0]["src"], src_correct_1))
-        self.assertTrue(torch.equal(actual[0]["tgt_in"], tgt_in_correct_1))
-        self.assertTrue(torch.equal(actual[0]["tgt_out"], tgt_out_correct_1))
-        self.assertEqual(actual[0]["num_src_toks"], 9)
-        self.assertEqual(actual[0]["num_tgt_toks"], 7)
-        self.assertTrue(torch.equal(actual[1]["src"], src_correct_2))
-        self.assertTrue(torch.equal(actual[1]["tgt_in"], tgt_in_correct_2))
-        self.assertTrue(torch.equal(actual[1]["tgt_out"], tgt_out_correct_2))
-        self.assertEqual(actual[1]["num_src_toks"], 9)
-        self.assertEqual(actual[1]["num_tgt_toks"], 9)
-        self.assertTrue(torch.equal(actual[2]["src"], src_correct_3))
-        self.assertTrue(torch.equal(actual[2]["tgt_in"], tgt_in_correct_3))
-        self.assertTrue(torch.equal(actual[2]["tgt_out"], tgt_out_correct_3))
-        self.assertEqual(actual[2]["num_src_toks"], 8)
-        self.assertEqual(actual[2]["num_tgt_toks"], 11)
-        self.assertTrue(torch.equal(actual[3]["src"], src_correct_4))
-        self.assertTrue(torch.equal(actual[3]["tgt_in"], tgt_in_correct_4))
-        self.assertTrue(torch.equal(actual[3]["tgt_out"], tgt_out_correct_4))
-        self.assertEqual(actual[3]["num_src_toks"], 4)
-        self.assertEqual(actual[3]["num_tgt_toks"], 7)
+        self.assertTrue(torch.equal(actual[0].src, src_correct_1))
+        self.assertTrue(torch.equal(actual[0].tgt_in, tgt_in_correct_1))
+        self.assertTrue(torch.equal(actual[0].tgt_out, tgt_out_correct_1))
+        self.assertEqual(actual[0].num_src_toks, 9)
+        self.assertEqual(actual[0].num_tgt_toks, 7)
+        self.assertTrue(torch.equal(actual[1].src, src_correct_2))
+        self.assertTrue(torch.equal(actual[1].tgt_in, tgt_in_correct_2))
+        self.assertTrue(torch.equal(actual[1].tgt_out, tgt_out_correct_2))
+        self.assertEqual(actual[1].num_src_toks, 9)
+        self.assertEqual(actual[1].num_tgt_toks, 9)
+        self.assertTrue(torch.equal(actual[2].src, src_correct_3))
+        self.assertTrue(torch.equal(actual[2].tgt_in, tgt_in_correct_3))
+        self.assertTrue(torch.equal(actual[2].tgt_out, tgt_out_correct_3))
+        self.assertEqual(actual[2].num_src_toks, 8)
+        self.assertEqual(actual[2].num_tgt_toks, 11)
+        self.assertTrue(torch.equal(actual[3].src, src_correct_4))
+        self.assertTrue(torch.equal(actual[3].tgt_in, tgt_in_correct_4))
+        self.assertTrue(torch.equal(actual[3].tgt_out, tgt_out_correct_4))
+        self.assertEqual(actual[3].num_src_toks, 4)
+        self.assertEqual(actual[3].num_tgt_toks, 7)
 
     def testIterRandomize(self):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,8,9]]
@@ -200,3 +203,169 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         
         # test iteration counting
         self.assertEqual(ds.num_iters, 5)
+
+
+
+class TestSeq2SeqTranslateDataset(unittest.TestCase):
+
+    def setUp(self):
+        self.vocab = Vocabulary()
+        self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
+
+    def testSortByLen(self):
+        src = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,7,9]]
+        ds = Seq2SeqTranslateDataset(src, self.vocab, sents_per_batch=2)
+
+        sorted_src_correct = [[5,6],[5,6,7],[5,6,7,8],[5,6,7,9],[5,6,7,8,9]]
+        orig_idxs_correct = [2,4,0,1,3]
+        sorted_src_actual, orig_idxs_actual = ds.sort_by_len(src)
+        self.assertEqual(sorted_src_actual, sorted_src_correct)
+        self.assertEqual(list(orig_idxs_actual), orig_idxs_correct)
+
+    def testMakeOneBatch(self):
+        src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7]]
+        orig_idxs = [0,1,2,3]
+        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=4)
+
+        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
+        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
+        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        src_correct = torch.tensor([[5,6,7,8,EOS,PAD],
+                                    [5,6,7,8,9,EOS],
+                                    [5,6,EOS,PAD,PAD,PAD],
+                                    [5,6,7,EOS,PAD,PAD]])
+        actual = ds.make_one_batch(src_sents, orig_idxs)
+        self.assertTrue(torch.equal(actual.src, src_correct))
+        self.assertEqual(actual.orig_idxs, orig_idxs)
+
+    def testMakeBatches(self):
+        src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
+        orig_idxs = [0,1,2,3,4,5,6]
+        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2)
+
+        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
+        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
+        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        src_correct_1 = torch.tensor([[5,6,EOS,PAD,PAD],[5,6,8,9,EOS]])
+        src_correct_2 = torch.tensor([[5,6,7,EOS],[7,8,EOS,PAD]])
+        src_correct_3 = torch.tensor([[5,6,7,8,9,EOS],[5,6,7,8,EOS,PAD]])
+        src_correct_4 = torch.tensor([[5,6,9,EOS]])
+
+        actual = ds.make_batches(src_sents, orig_idxs, sents_per_batch=2)
+
+        self.assertEqual(len(actual), 4)
+
+        self.assertTrue(torch.equal(actual[0].src, src_correct_1))
+        self.assertEqual(list(actual[0].orig_idxs), [0,1])
+
+        self.assertTrue(torch.equal(actual[1].src, src_correct_2))
+        self.assertEqual(list(actual[1].orig_idxs), [2,3])
+
+        self.assertTrue(torch.equal(actual[2].src, src_correct_3))
+        self.assertEqual(list(actual[2].orig_idxs), [4,5])
+
+        self.assertTrue(torch.equal(actual[3].src, src_correct_4))
+        self.assertEqual(list(actual[3].orig_idxs), [6])
+
+    def testInitInOrder(self):
+        src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
+        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2, in_order=True)
+
+        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
+        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
+        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        src_correct_1 = torch.tensor([[5,6,EOS,PAD,PAD],[5,6,8,9,EOS]])
+        src_correct_2 = torch.tensor([[5,6,7,EOS],[7,8,EOS,PAD]])
+        src_correct_3 = torch.tensor([[5,6,7,8,9,EOS],[5,6,7,8,EOS,PAD]])
+        src_correct_4 = torch.tensor([[5,6,9,EOS]])
+
+        actual = ds.batches
+
+        self.assertEqual(len(actual), 4)
+
+        self.assertTrue(torch.equal(actual[0].src, src_correct_1))
+        self.assertEqual(list(actual[0].orig_idxs), [0,1])
+
+        self.assertTrue(torch.equal(actual[1].src, src_correct_2))
+        self.assertEqual(list(actual[1].orig_idxs), [2,3])
+
+        self.assertTrue(torch.equal(actual[2].src, src_correct_3))
+        self.assertEqual(list(actual[2].orig_idxs), [4,5])
+
+        self.assertTrue(torch.equal(actual[3].src, src_correct_4))
+        self.assertEqual(list(actual[3].orig_idxs), [6])
+
+    def testInitSorted(self):
+        src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
+        # sorted src: [[5,6],[7,8],[5,6,7],[5,6,9],[5,6,8,9],[5,6,7,8],[5,6,7,8,9]]
+        # orig idxs: [0,4,2,1,6,5,3]
+        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2, in_order=False)
+
+        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
+        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
+        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        src_correct_1 = torch.tensor([[5,6,EOS],[7,8,EOS]])
+        src_correct_2 = torch.tensor([[5,6,7,EOS],[5,6,9,EOS]])
+        src_correct_3 = torch.tensor([[5,6,8,9,EOS],[5,6,7,8,EOS]])
+        src_correct_4 = torch.tensor([[5,6,7,8,9,EOS]])
+
+        actual = ds.batches
+
+        self.assertEqual(len(actual), 4)
+
+        self.assertTrue(torch.equal(actual[0].src, src_correct_1))
+        self.assertEqual(list(actual[0].orig_idxs), [0,4])
+
+        self.assertTrue(torch.equal(actual[1].src, src_correct_2))
+        self.assertEqual(list(actual[1].orig_idxs), [2,1])
+
+        self.assertTrue(torch.equal(actual[2].src, src_correct_3))
+        self.assertEqual(list(actual[2].orig_idxs), [6,5])
+
+        self.assertTrue(torch.equal(actual[3].src, src_correct_4))
+        self.assertEqual(list(actual[3].orig_idxs), [3])
+
+    def testUnpad(self):
+        src_sents = []
+        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2)
+
+        ds.eos_idx = 0
+        gen = [1, 2, 3, 1, 2, 0, 0, 0]
+        gen_unpad_correct = [1, 2, 3, 1, 2]
+        gen_unpad_actual = ds.unpad(gen)
+        self.assertEqual(gen_unpad_actual, gen_unpad_correct)
+
+    def testRestoreOrder(self):
+        src_sents = []
+        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2)
+
+        tgt_orig = [[10,11,12],[10,11,12,13],[10,11,12,14],[10,11,12,13,14],[10,11],[10,12,13],[10,11,12,13,14,15]]
+        tgt_sorted = [[10,11],[10,11,12],[10,12,13],[10,11,12,13],[10,11,12,14],[10,11,12,13,14],[10,11,12,13,14,15]]
+        orig_idxs = [1,3,4,5,0,2,6]
+        self.assertEqual(ds.restore_order(tgt_sorted, orig_idxs), tgt_orig)
+
+    def testRoundTripInOrder(self):
+        src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
+        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2, in_order=True)
+
+        tgt_batches = []
+        for src_batch in ds.batches:
+           tgt = src_batch.src.clone().unsqueeze(1).expand(-1,3,-1)
+           tgt_batches.append(src_batch.with_translation(tgt))
+
+        correct = [[sent]*3 for sent in src_sents]
+        actual = ds.unbatch(tgt_batches)
+        self.assertEqual(actual, correct)
+
+    def testRoundTripSorted(self):
+        src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
+        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2, in_order=False)
+
+        tgt_batches = []
+        for src_batch in ds.batches:
+           tgt = src_batch.src.clone().unsqueeze(1).expand(-1,3,-1)
+           tgt_batches.append(src_batch.with_translation(tgt))
+
+        correct = [[sent]*3 for sent in src_sents]
+        actual = ds.unbatch(tgt_batches)
+        self.assertEqual(actual, correct)

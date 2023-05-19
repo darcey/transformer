@@ -65,3 +65,9 @@ word_dropout           = 0.1
 label_smoothing        = 0.1
 label_smooth_eos       = true
 label_smooth_unk       = true
+
+
+[generation]
+# Number of generations
+max_parallel_sentences = 100
+num_beams_or_samples   = 5

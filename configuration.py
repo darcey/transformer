@@ -54,7 +54,10 @@ def read_config(filename):
     config_train_lr.lr_strategy = LearningRateStrategy(config_train_lr.lr_strategy)
     config_train.lr = config_train_lr
     
+    config_gen = Namespace(**config_dict["generation"])
+
     config = Namespace()
     config.arch = config_arch
     config.train = config_train
+    config.gen = config_gen
     return config
