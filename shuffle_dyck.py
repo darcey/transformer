@@ -37,7 +37,8 @@ class ShuffleDyckRecognizer():
             emb[k+j, 2*j] = -1
             emb[k+j, 2*j+1] = 1
         emb = emb / math.sqrt(2*k)
-        t.embedding.embedding = torch.nn.Parameter(emb)
+        embedding = torch.nn.Parameter(emb)
+        t.input.embedding.embedding = embedding
 
         proj_k = torch.zeros(2*k, 2*k)
         proj_v = torch.eye(2*k, 2*k)

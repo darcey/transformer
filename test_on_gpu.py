@@ -279,6 +279,34 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         out_gpu = eod_gpu(y_gpu, ymask_gpu, x_gpu, xmask_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
 
+    def testInputLayer(self):
+        if not torch.cuda.is_available():
+            return
+
+        x_cpu = torch.randint(high=1000,size=(5,10))
+        x_gpu = x_cpu.to("cuda:0")
+
+        emb = get_embedding(self.config, 1000)
+        il_cpu = InputLayer(self.config, emb)
+        il_gpu = copy.deepcopy(il_cpu).to("cuda:0")
+        out_cpu = il_cpu(x_cpu)
+        out_gpu = il_gpu(x_gpu)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
+
+    def testOutputLayer(self):
+        if not torch.cuda.is_available():
+            return
+
+        x_cpu = torch.rand(5,10,self.config.arch.d_model)
+        x_gpu = x_cpu.to("cuda:0")
+
+        emb = get_embedding(self.config, 1000)
+        ol_cpu = OutputLayer(emb, 1000, support_mask=None)
+        ol_gpu = copy.deepcopy(ol_cpu).to("cuda:0")
+        out_cpu = ol_cpu(x_cpu)
+        out_gpu = ol_gpu(x_gpu)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
+
     def testTransformerTwoSeq(self):
         if not torch.cuda.is_available():
             return

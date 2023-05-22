@@ -464,6 +464,45 @@ class TestEncoderOrDecoder(unittest.TestCase):
 
 
 
+class TestInputLayer(unittest.TestCase):
+
+    def setUp(self):
+        self.config = read_config("configuration.toml")
+        self.emb = get_embedding(self.config, 15)
+
+    def testShape(self):
+        il = InputLayer(self.config, self.emb)
+        x = torch.randint(low=1, high=15, size=(10,6))
+        out = il(x)
+        self.assertEqual(out.shape, (10,6,self.config.arch.d_model))
+
+
+
+class TestOutputLayer(unittest.TestCase):
+
+    def setUp(self):
+        self.emb = Embedding(5,4,fix_norm=True)
+
+    def testShape(self):
+        ol = OutputLayer(self.emb, vocab_size=5, support_mask=None)
+        x = torch.rand(10,6,4)
+        out = ol(x)
+        self.assertEqual(out.shape, (10,6,5))
+
+    def testSupportMask(self):
+        support_mask = torch.tensor([1.0, 1.0, 0.0, 1.0, 0.0])
+        ol = OutputLayer(self.emb, vocab_size=5, support_mask=support_mask)
+        x = torch.rand(10,6,4)
+        out = ol(x)
+
+        self.assertTrue(out[0,0,0] > float('-inf'))
+        self.assertTrue(out[0,0,1] > float('-inf'))
+        self.assertTrue(out[0,0,2] == float('-inf'))
+        self.assertTrue(out[0,0,3] > float('-inf'))
+        self.assertTrue(out[0,0,4] == float('-inf'))
+
+
+
 class TestTransformer(unittest.TestCase):
 
     def setUp(self):
@@ -547,26 +586,3 @@ class TestTransformer(unittest.TestCase):
         out1 = t(y1)
         out2 = t(y2)
         self.assertTrue(torch.equal(out1, out2))
-
-    def testTgtVocabMask(self):
-        x = torch.randint(low=1,high=5,size=(4,3))
-        y = torch.randint(low=1,high=5,size=(4,3))
-        tgt_support_mask = torch.tensor([1.0, 1.0, 0.0, 1.0, 0.0])
-
-        t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=False, num_dec_layers=6, masked_self_att_dec=True, output_probs=True, vocab_size=5, pad_idx=0, tgt_support_mask=tgt_support_mask)
-        out = t(x, y)
-        self.assertEqual(out.shape, (4,3,5))
-        self.assertTrue(out[0,0,0] > float('-inf'))
-        self.assertTrue(out[0,0,1] > float('-inf'))
-        self.assertTrue(out[0,0,2] == float('-inf'))
-        self.assertTrue(out[0,0,3] > float('-inf'))
-        self.assertTrue(out[0,0,4] == float('-inf'))
-
-        t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=True, vocab_size=5, pad_idx=0, support_mask=tgt_support_mask)
-        out = t(y)
-        self.assertEqual(out.shape, (4,3,5))
-        self.assertTrue(out[0,0,0] > float('-inf'))
-        self.assertTrue(out[0,0,1] > float('-inf'))
-        self.assertTrue(out[0,0,2] == float('-inf'))
-        self.assertTrue(out[0,0,3] > float('-inf'))
-        self.assertTrue(out[0,0,4] == float('-inf'))

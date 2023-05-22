@@ -326,6 +326,44 @@ class EncoderOrDecoder(torch.nn.Module):
 
 
 
+class InputLayer(torch.nn.Module):
+
+    def __init__(self, config, embedding):
+        super().__init__()
+        self.embedding  = embedding
+        self.positional = get_positional_encoding(config)
+
+    # seq: [batch, seq]
+    # ret: [batch, seq, d_model]
+    def forward(self, seq):
+        seq_embed  = self.embedding(seq)
+        seq_embed += self.positional(seq_embed)
+        return seq_embed
+
+
+
+class OutputLayer(torch.nn.Module):
+
+    def __init__(self, embedding, vocab_size, support_mask):
+        super().__init__()
+        self.embedding = embedding
+
+        if support_mask == None:
+            support_mask = torch.tensor([0.0]*vocab_size)
+        else:
+            support_mask = torch.log(support_mask.type(torch.float))
+        self.register_buffer('support_mask', support_mask)
+
+    # seq: [batch, seq, d_model]
+    # ret: [batch, seq, vocab_size]
+    def forward(self, seq):
+        logits = self.embedding(seq, reverse=True)
+        logits_masked = logits + self.support_mask
+        probs = torch.nn.functional.log_softmax(logits_masked, dim=-1)
+        return probs
+
+
+
 # Transformer model, https://arxiv.org/pdf/1706.03762.pdf
 # For maximum flexibility, I have implemented two versions, one which
 # takes two sequences as input and another which takes one sequence.
@@ -379,31 +417,32 @@ def get_transformer(config, vocab_size, pad_idx, tgt_support_mask=None):
                                      pad_idx=pad_idx,
                                      support_mask=tgt_support_mask)
 
+# seq:  [batch, seq_len]
+# mask: [batch, 1, seq_len]
+def get_pad_mask(seq, pad_idx):
+    return torch.zeros_like(seq).type(torch.float).masked_fill(seq == pad_idx, float("-inf")).unsqueeze(1)
+
 class TransformerTwoSeq(torch.nn.Module):
 
     def __init__(self, config, num_enc_layers, masked_self_att_enc, num_dec_layers, masked_self_att_dec, output_probs, vocab_size, pad_idx, tgt_support_mask=None):
         super().__init__()
         self.pad_idx = pad_idx
 
+        embedding         = get_embedding(config, vocab_size)
+        self.input        = InputLayer(config, embedding)
         self.output_probs = output_probs
-        if self.output_probs:
-            if tgt_support_mask == None:
-                tgt_support_mask = torch.tensor([0.0]*vocab_size)
-            else:
-                tgt_support_mask = torch.log(tgt_support_mask.type(torch.float))
-            self.register_buffer('tgt_support_mask', tgt_support_mask)
+        if output_probs:
+            self.output   = OutputLayer(embedding, vocab_size, tgt_support_mask)
 
-        self.embedding  = get_embedding(config, vocab_size)
-        self.positional = get_positional_encoding(config)
-        self.dropout    = torch.nn.Dropout(p=config.train.dropout)
-        self.encoder    = EncoderOrDecoder(config,
-                                           num_layers=num_enc_layers,
-                                           take_two_seqs=False,
-                                           masked_self_att=masked_self_att_enc)
-        self.decoder    = EncoderOrDecoder(config,
-                                           num_layers=num_dec_layers,
-                                           take_two_seqs=True,
-                                           masked_self_att=masked_self_att_dec)
+        self.dropout = torch.nn.Dropout(p=config.train.dropout)
+        self.encoder = EncoderOrDecoder(config,
+                                        num_layers=num_enc_layers,
+                                        take_two_seqs=False,
+                                        masked_self_att=masked_self_att_enc)
+        self.decoder = EncoderOrDecoder(config,
+                                        num_layers=num_dec_layers,
+                                        take_two_seqs=True,
+                                        masked_self_att=masked_self_att_dec)
 
     # src: [batch, src_seq]
     # tgt: [batch, tgt_seq]
@@ -412,22 +451,16 @@ class TransformerTwoSeq(torch.nn.Module):
         src_pad_mask = get_pad_mask(src, self.pad_idx)
         tgt_pad_mask = get_pad_mask(tgt, self.pad_idx)
 
-        src_embed  = self.embedding(src)
-        src_embed += self.positional(src_embed)
+        src_embed  = self.input(src)
         src_input  = self.dropout(src_embed)
         src_output = self.encoder(src_input, src_pad_mask)
 
-        tgt_embed  = self.embedding(tgt)
-        tgt_embed += self.positional(tgt_embed)
+        tgt_embed  = self.input(tgt)
         tgt_input  = self.dropout(tgt_embed)
         tgt_output = self.decoder(tgt_input, tgt_pad_mask, src_output, src_pad_mask)
-        if not self.output_probs:
-            return tgt_output
-        else:
-            tgt_logits = self.embedding(tgt_output, reverse=True)
-            tgt_logits_masked = tgt_logits + self.tgt_support_mask
-            tgt_probs = torch.nn.functional.log_softmax(tgt_logits_masked, dim=-1)
-            return tgt_probs
+        if self.output_probs:
+            tgt_output = self.output(tgt_output)
+        return tgt_output
 
 class TransformerOneSeq(torch.nn.Module):
 
@@ -435,40 +468,26 @@ class TransformerOneSeq(torch.nn.Module):
         super().__init__()
         self.pad_idx = pad_idx
 
+        embedding         = get_embedding(config, vocab_size)
+        self.input        = InputLayer(config, embedding)
         self.output_probs = output_probs
-        if self.output_probs:
-            if support_mask == None:
-                support_mask = torch.tensor([0.0]*vocab_size)
-            else:
-                support_mask = torch.log(support_mask.type(torch.float))
-            self.register_buffer('support_mask', support_mask)
+        if output_probs:
+            self.output   = OutputLayer(embedding, vocab_size, support_mask)
 
-        self.embedding  = get_embedding(config, vocab_size)
-        self.positional = get_positional_encoding(config)
-        self.dropout    = torch.nn.Dropout(p=config.train.dropout)
-        self.xxcoder    = EncoderOrDecoder(config,
-                                           num_layers=num_layers,
-                                           take_two_seqs=False,
-                                           masked_self_att=masked_self_att)
+        self.dropout = torch.nn.Dropout(p=config.train.dropout)
+        self.xxcoder = EncoderOrDecoder(config,
+                                        num_layers=num_layers,
+                                        take_two_seqs=False,
+                                        masked_self_att=masked_self_att)
 
     # seq: [batch, seq]
     # ret: [batch, seq, vocab_size]
     def forward(self, seq):
         pad_mask = get_pad_mask(seq, self.pad_idx)
 
-        seq_embed  = self.embedding(seq)
-        seq_embed += self.positional(seq_embed)
+        seq_embed  = self.input(seq)
         seq_input  = self.dropout(seq_embed)
         seq_output = self.xxcoder(seq_input, pad_mask)
-        if not self.output_probs:
-            return seq_output
-        else:
-            seq_logits = self.embedding(seq_output, reverse=True)
-            seq_logits_masked = seq_logits + self.support_mask
-            seq_probs = torch.nn.functional.log_softmax(seq_logits_masked, dim=-1)
-            return seq_probs
-
-# seq:  [batch, seq_len]
-# mask: [batch, 1, seq_len]
-def get_pad_mask(seq, pad_idx):
-    return torch.zeros_like(seq).type(torch.float).masked_fill(seq == pad_idx, float("-inf")).unsqueeze(1)
+        if self.output_probs:
+            seq_output = self.output(seq_output)
+        return seq_output
