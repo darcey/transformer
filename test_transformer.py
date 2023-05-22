@@ -586,3 +586,30 @@ class TestTransformer(unittest.TestCase):
         out1 = t(y1)
         out2 = t(y2)
         self.assertTrue(torch.equal(out1, out2))
+
+    def testTwoSeqAutoregressiveOneStepFn(self):
+        self.config.train.dropout = 0.0
+        self.config.train.ff_dropout = 0.0
+        self.config.train.att_dropout = 0.0
+
+        x = torch.randint(low=1,high=30,size=(5,10))
+        y = torch.randint(low=1,high=30,size=(5,20))
+
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=False, num_dec_layers=6, masked_self_att_dec=True, output_probs=True, vocab_size=30, pad_idx=0, tgt_support_mask=None)
+        out1 = t(x, y)
+        auto_fn = t.get_autoregressive_one_step_fn(x)
+        out2 = auto_fn(y)
+        self.assertTrue(torch.equal(out1[:,-1,:], out2))
+
+    def testOneSeqAutoregressiveOneStepFn(self):
+        self.config.train.dropout = 0.0
+        self.config.train.ff_dropout = 0.0
+        self.config.train.att_dropout = 0.0
+
+        y = torch.randint(low=1,high=30,size=(5,20))
+
+        t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=True, vocab_size=1000, pad_idx=0, support_mask=None)
+        out1 = t(y)
+        auto_fn = t.get_autoregressive_one_step_fn()
+        out2 = auto_fn(y)
+        self.assertTrue(torch.equal(out1[:,-1,:], out2))

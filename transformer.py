@@ -462,6 +462,30 @@ class TransformerTwoSeq(torch.nn.Module):
             tgt_output = self.output(tgt_output)
         return tgt_output
 
+    # src: [batch, src_seq]
+    def get_autoregressive_one_step_fn(self, src):
+        if not self.output_probs:
+            raise Exception("Can only construct one step function for model that outputs probabilities.")
+
+        src_pad_mask = get_pad_mask(src, self.pad_idx)
+
+        src_embed  = self.input(src)
+        src_input  = self.dropout(src_embed)
+        src_output = self.encoder(src_input, src_pad_mask)
+
+        # tgt: [batch, tgt_seq]
+        # ret: [batch, tgt_seq, vocab_size]
+        def run_decoder_for_one_step(tgt):
+            tgt_pad_mask = get_pad_mask(tgt, self.pad_idx)
+
+            tgt_embed  = self.input(tgt)
+            tgt_input  = self.dropout(tgt_embed)
+            tgt_output = self.decoder(tgt_input, tgt_pad_mask, src_output, src_pad_mask)
+            tgt_probs  = self.output(tgt_output)
+            return tgt_probs[:,-1,:]
+
+        return run_decoder_for_one_step
+
 class TransformerOneSeq(torch.nn.Module):
 
     def __init__(self, config, num_layers, masked_self_att, output_probs, vocab_size, pad_idx, support_mask=None):
@@ -491,3 +515,22 @@ class TransformerOneSeq(torch.nn.Module):
         if self.output_probs:
             seq_output = self.output(seq_output)
         return seq_output
+
+    # note: this currently looks just like the forward function
+    #       but after caching is implemented it will be different
+    def get_autoregressive_one_step_fn(self):
+        if not self.output_probs:
+            raise Exception("Can only construct one step function for model that outputs probabilities.")
+
+        # seq: [batch, seq]
+        # ret: [batch, seq, vocab_size]
+        def run_model_for_one_step(seq):
+            pad_mask = get_pad_mask(seq, self.pad_idx)
+
+            seq_embed  = self.input(seq)
+            seq_input  = self.dropout(seq_embed)
+            seq_output = self.xxcoder(seq_input, pad_mask)
+            seq_probs  = self.output(seq_output)
+            return seq_probs[:,-1,:]
+
+        return run_model_for_one_step

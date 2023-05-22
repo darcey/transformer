@@ -325,6 +325,12 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         out_gpu = t_gpu(x_gpu, y_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
 
+        auto_fn_cpu = t_cpu.get_autoregressive_one_step_fn(x_cpu)
+        auto_fn_gpu = t_gpu.get_autoregressive_one_step_fn(x_gpu)
+        out_cpu = auto_fn_cpu(y_cpu)
+        out_gpu = auto_fn_gpu(y_gpu)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
+
     def testTransformerOneSeq(self):
         if not torch.cuda.is_available():
             return
@@ -339,4 +345,10 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         t_gpu = copy.deepcopy(t_cpu).to("cuda:0")
         out_cpu = t_cpu(y_cpu)
         out_gpu = t_gpu(y_gpu)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
+
+        auto_fn_cpu = t_cpu.get_autoregressive_one_step_fn()
+        auto_fn_gpu = t_gpu.get_autoregressive_one_step_fn()
+        out_cpu = auto_fn_cpu(y_cpu)
+        out_gpu = auto_fn_gpu(y_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
