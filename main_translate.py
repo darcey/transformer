@@ -5,12 +5,14 @@ import argparse
 import torch
 
 from configuration import read_config
-from translator import Translator
 from reader_writer import read_data, print_translations
 from vocabulary import Vocabulary
 from dataset import Seq2SeqTranslateDataset
+from translator import Translator
 from generator import Generator
 from transformer import get_transformer
+
+DUMP_INTERVAL = 100000
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -45,15 +47,15 @@ if __name__ == '__main__':
     src = read_data(args.src)    
 
     # computations pertaining to the batch size
-    max_parallel_sentences = config.generation.max_parallel_sentences
-    num_beams_or_samples = config.generation.num_beams_or_samples
+    max_parallel_sentences = config.gen.max_parallel_sentences
+    num_beams_or_samples = config.gen.num_beams_or_samples
     if max_parallel_sentences < num_beams_or_samples:
         batch_size = 1
     else:
         batch_size = int(max_parallel_sentences / num_beams_or_samples)
 
     num_translations = len(src) * num_beams_or_samples
-    dump_translations = (num_translations > 20000)
+    dump_translations = (num_translations > DUMP_INTERVAL)
 
     # prepare the data
     src_unk = vocab.unk_data(src, src=True)
@@ -73,7 +75,7 @@ if __name__ == '__main__':
     translator = Translator(model, generator)
 
     # translate the data
-    print_every = 20000 if dump_translations else 0
+    print_every = DUMP_INTERVAL if dump_translations else 0
     for translations in translator.translate(batches, print_every):
         translations_all = batches.unbatch(translations)
         translations_all = vocab.idx_to_tok_data(translations_all)

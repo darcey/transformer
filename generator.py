@@ -10,6 +10,6 @@ class Generator:
     def __init__(self, model, config):
         self.model = model
 
-    def generate(self, src, num_beams_or_samples):
+    def generate(self, src):
         tgt_all = src.clone().unsqueeze(1).expand(-1, num_beams_or_samples, -1)
         return tgt_all
