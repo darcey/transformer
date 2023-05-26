@@ -1,11 +1,14 @@
+import time
 import copy
 import torch
 import torch.testing
 import unittest
 from tempfile import TemporaryDirectory
-from configuration import *
+from configuration import read_config
 from trainer import *
 from vocabulary import *
+from generator import *
+from cache import *
 from transformer import *
 
 
@@ -67,6 +70,102 @@ class TestTrainerSameOnGPU(unittest.TestCase):
         ce_gpu, nt_gpu = trainer_gpu.cross_ent(predicted_gpu, gold_gpu)
         torch.testing.assert_close(ce_cpu, ce_gpu.to("cpu"), atol=0.00001, rtol=0)
         torch.testing.assert_close(nt_cpu, nt_gpu.to("cpu"), atol=0.00001, rtol=0)
+
+
+
+class MockCacheDoesNothing:
+    def expand(self, num_samples):
+        return
+    def trim_finished_sents(self, finished):
+        return
+
+class TestGeneratorWorksOnGPU(unittest.TestCase):
+
+    def setUp(self):
+        self.pad_idx = 0
+        self.bos_idx = 1
+        self.eos_idx = 2
+        self.a_idx   = 3
+        self.b_idx   = 4
+
+        device = "cuda:0"
+        config = read_config("configuration.toml")
+        model = None
+
+        self.gen = Generator(model, config, device, self.pad_idx, self.bos_idx, self.eos_idx)
+        self.cache = MockCacheDoesNothing()
+
+    # This is the same test function as in test_generator;
+    # just need to make sure it also works on GPU.
+    def testSampleSimpleDistribution(self):
+        def mock_autoregressive_fn(cumul_symbols, cache):
+            a_dist   = torch.tensor([0.0, 0.0, 0.5, 0.5, 0.0], device="cuda:0")
+            b_dist   = torch.tensor([0.0, 0.0, 0.5, 0.0, 0.5], device="cuda:0")
+            ab_dist  = torch.tensor([0.0, 0.0, 0.0, 0.5, 0.5], device="cuda:0")
+            all_dist = (cumul_symbols[:,-1] == 1).unsqueeze(1).type(torch.float) * ab_dist + \
+                       (cumul_symbols[:,-1] == 3).unsqueeze(1).type(torch.float) * a_dist + \
+                       (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * b_dist
+            return torch.log(all_dist)
+
+        max_lengths = torch.tensor([40]*1000, device="cuda:0")
+        symbols_out, probs_out = self.gen.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
+
+        # Every sample should have just a or just b
+        a_samples = torch.eq(symbols_out, 3).sum(dim=-1).type(torch.bool)
+        b_samples = torch.eq(symbols_out, 4).sum(dim=-1).type(torch.bool)
+        self.assertFalse(torch.logical_and(a_samples, b_samples).any())
+
+        # Should be roughly half a, half b
+        self.assertAlmostEqual(a_samples.sum()/5000, 0.5, delta=0.02)
+        self.assertAlmostEqual(b_samples.sum()/5000, 0.5, delta=0.02)
+
+
+
+class TestCacheSameOnGPU(unittest.TestCase):
+
+    def testExpandToNumSamplesSameOnGPU(self):
+        if not torch.cuda.is_available():
+            return
+
+        src_embed_cpu = torch.rand(5,6,7)
+        src_embed_gpu = src_embed_cpu.cuda()
+        src_mask_cpu = torch.rand(5,1,6)
+        src_mask_gpu = src_mask_cpu.cuda()
+
+        cache_cpu = BeamCache()
+        cache_gpu = BeamCache()
+        cache_cpu.cache_src(src_embed_cpu, src_mask_cpu)
+        cache_gpu.cache_src(src_embed_gpu, src_mask_gpu)
+        cache_cpu.expand_to_num_samples(3)
+        cache_gpu.expand_to_num_samples(3)
+        src_embed_out_cpu, src_mask_out_cpu = cache_cpu.get_src()
+        src_embed_out_gpu, src_mask_out_gpu = cache_gpu.get_src()
+
+        self.assertTrue(torch.equal(src_embed_out_cpu, src_embed_out_gpu))
+        self.assertTrue(torch.equal(src_mask_out_cpu, src_mask_out_gpu))
+
+    def testExpandToNumSamplesSameOnGPU(self):
+        if not torch.cuda.is_available():
+            return
+
+        src_embed_cpu = torch.rand(5,6,7)
+        src_embed_gpu = src_embed_cpu.cuda()
+        src_mask_cpu = torch.rand(5,1,6)
+        src_mask_gpu = src_mask_cpu.cuda()
+        finished_cpu = torch.tensor([True, False, True, False, True])
+        finished_gpu = finished_cpu.cuda()
+
+        cache_cpu = BeamCache()
+        cache_gpu = BeamCache()
+        cache_cpu.cache_src(src_embed_cpu, src_mask_cpu)
+        cache_gpu.cache_src(src_embed_gpu, src_mask_gpu)
+        cache_cpu.trim_finished_sents(finished_cpu)
+        cache_gpu.trim_finished_sents(finished_gpu)
+        src_embed_out_cpu, src_mask_out_cpu = cache_cpu.get_src()
+        src_embed_out_gpu, src_mask_out_gpu = cache_gpu.get_src()
+
+        self.assertTrue(torch.equal(src_embed_out_cpu, src_embed_out_gpu.cpu()))
+        self.assertTrue(torch.equal(src_mask_out_cpu, src_mask_out_gpu.cpu()))
 
 
 
@@ -325,10 +424,19 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         out_gpu = t_gpu(x_gpu, y_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
 
-        auto_fn_cpu = t_cpu.get_autoregressive_one_step_fn(x_cpu)
-        auto_fn_gpu = t_gpu.get_autoregressive_one_step_fn(x_gpu)
-        out_cpu = auto_fn_cpu(y_cpu)
-        out_gpu = auto_fn_gpu(y_gpu)
+        class MockCache:
+            def cache_src(self, src_output, src_pad_mask):
+                self.src_output = src_output
+                self.src_pad_mask = src_pad_mask
+            def get_src(self):
+                return self.src_output, self.src_pad_mask
+
+        cache_cpu = MockCache()
+        cache_gpu = MockCache()
+        auto_fn_cpu = t_cpu.get_autoregressive_one_step_fn(x_cpu, cache_cpu)
+        auto_fn_gpu = t_gpu.get_autoregressive_one_step_fn(x_gpu, cache_gpu)
+        out_cpu = auto_fn_cpu(y_cpu, cache_cpu)
+        out_gpu = auto_fn_gpu(y_gpu, cache_gpu)
         torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
 
     def testTransformerOneSeq(self):

@@ -35,6 +35,9 @@ class NormType(Enum):
     LAYER_NORM = "Layer_Norm"
     SCALE_NORM = "Scale_Norm"
 
+class DecodingMethod(Enum):
+    SAMPLING = "Sampling"
+
 class LearningRateStrategy(Enum):
     WARMUP_INV_SQRT_DECAY = "Warmup_InvSqrtDecay"
     WARMUP_VAL_DECAY = "Warmup_ValDecay"
@@ -55,6 +58,7 @@ def read_config(filename):
     config_train.lr = config_train_lr
     
     config_gen = Namespace(**config_dict["generation"])
+    config_gen.decoding_method = DecodingMethod(config_gen.decoding_method)
 
     config = Namespace()
     config.arch = config_arch

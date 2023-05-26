@@ -463,24 +463,26 @@ class TransformerTwoSeq(torch.nn.Module):
         return tgt_output
 
     # src: [batch, src_seq]
-    def get_autoregressive_one_step_fn(self, src):
+    def get_autoregressive_one_step_fn(self, src, cache):
         if not self.output_probs:
             raise Exception("Can only construct one step function for model that outputs probabilities.")
 
         src_pad_mask = get_pad_mask(src, self.pad_idx)
+        src_embed    = self.input(src)
+        src_input    = self.dropout(src_embed)
+        src_output   = self.encoder(src_input, src_pad_mask)
 
-        src_embed  = self.input(src)
-        src_input  = self.dropout(src_embed)
-        src_output = self.encoder(src_input, src_pad_mask)
+        cache.cache_src(src_output, src_pad_mask)
 
         # tgt: [batch, tgt_seq]
         # ret: [batch, tgt_seq, vocab_size]
-        def run_decoder_for_one_step(tgt):
-            tgt_pad_mask = get_pad_mask(tgt, self.pad_idx)
+        def run_decoder_for_one_step(tgt, cache):
+            src_output, src_pad_mask = cache.get_src()
 
-            tgt_embed  = self.input(tgt)
-            tgt_input  = self.dropout(tgt_embed)
-            tgt_output = self.decoder(tgt_input, tgt_pad_mask, src_output, src_pad_mask)
+            tgt_pad_mask = get_pad_mask(tgt, self.pad_idx)
+            tgt_embed    = self.input(tgt)
+            tgt_input    = self.dropout(tgt_embed)
+            tgt_output   = self.decoder(tgt_input, tgt_pad_mask, src_output, src_pad_mask)
             tgt_probs  = self.output(tgt_output)
             return tgt_probs[:,-1,:]
 

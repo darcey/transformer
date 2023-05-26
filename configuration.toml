@@ -71,3 +71,11 @@ label_smooth_unk       = true
 # Number of generations
 max_parallel_sentences = 100
 num_beams_or_samples   = 5
+
+# Length of generations
+use_rel_max_len        = true
+rel_max_len            = 50
+abs_max_len            = 300
+
+# Decoding method
+decoding_method        = "Sampling"
