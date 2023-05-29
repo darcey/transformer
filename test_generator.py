@@ -1,13 +1,13 @@
 import math
 import torch
 import unittest
-from configuration import read_config
+from configuration import read_config, DecodingMethod, SamplingMethod
 from generator import *
 
 
 
 class MockModelDoesNothing:
-    def get_autoregressive_one_step_fn(src, cache):
+    def get_autoregressive_one_step_fn(self, src, cache):
         return 5
 
 class MockCacheDoesNothing:
@@ -40,9 +40,11 @@ class TestGenerate(unittest.TestCase):
                             [1,2,0,0,0]])
         max_lengths_correct = torch.tensor([8,9,7])
 
-        def mock_sample_outer_loop(self, b, max_lengths, max_possible_length, fn, cache):
+        def mock_sample_outer_loop(b, max_lengths, max_possible_length, fn, cache):
             self.assertTrue(torch.equal(max_lengths, max_lengths_correct))
             self.assertEqual(max_possible_length, 9)
+        self.gen.sample_outer_loop = mock_sample_outer_loop
+        self.gen.generate(src)
 
     def testMaxLengthsAbsolute(self):
         self.gen.config.use_rel_max_len = False
@@ -53,9 +55,11 @@ class TestGenerate(unittest.TestCase):
                             [1,2,0,0,0]])
         max_lengths_correct = torch.tensor([6,6,6])
 
-        def mock_sample_outer_loop(self, b, max_lengths, max_possible_length, fn, cache):
+        def mock_sample_outer_loop(b, max_lengths, max_possible_length, fn, cache):
             self.assertTrue(torch.equal(max_lengths, max_lengths_correct))
             self.assertEqual(max_possible_length, 6)
+        self.gen.sample_outer_loop = mock_sample_outer_loop
+        self.gen.generate(src)
 
 
 
@@ -287,3 +291,35 @@ class TestSampling(unittest.TestCase):
         # Should be roughly half a, half b
         self.assertAlmostEqual(a_samples.sum()/5000, 0.5, delta=0.02)
         self.assertAlmostEqual(b_samples.sum()/5000, 0.5, delta=0.02)
+
+    def testTopK(self):
+        dist = torch.tensor([1.0, 3.0, 5.0, 7.0, 9.0, 0.5, 2.0, 4.0, 6.0, 8.0])
+        dist = dist.unsqueeze(0)
+
+        self.gen.config.decoding_method = DecodingMethod.SAMPLING
+        self.gen.config.sampling_method = SamplingMethod.TOP_K
+        self.gen.config.sampling_k = 5
+        dist_correct = torch.tensor([0.0, 0.0, 5.0, 7.0, 9.0, 0.0, 0.0, 0.0, 6.0, 8.0])
+        dist_correct = dist_correct.unsqueeze(0)
+
+        dist_out = self.gen.adjust_or_truncate_probs(dist)
+        self.assertTrue(torch.equal(dist_out, dist_correct))
+
+    def testTopP(self):
+        self.gen.config.decoding_method = DecodingMethod.SAMPLING
+        self.gen.config.sampling_method = SamplingMethod.TOP_P
+
+        # No matter what the distribution is, p = 1.0 should just return it.
+        self.gen.config.sampling_p = 1.0
+        dist = torch.nn.functional.softmax(torch.rand(5,8), dim=-1)
+        dist_out = self.gen.adjust_or_truncate_probs(dist)
+        self.assertTrue(torch.equal(dist_out, dist))
+
+        # Test for p < 1.0
+        self.gen.config.sampling_p = 0.6
+        dist = torch.tensor([[0.26, 0.1, 0.2,  0.03, 0.05, 0.02, 0.3,  0.04],
+                             [0.08, 0.5, 0.02, 0.25, 0.05, 0.04, 0.03, 0.03]])
+        dist_correct = torch.tensor([[0.26, 0.0, 0.2, 0.0,  0.0, 0.0, 0.3, 0.0],
+                                     [0.0 , 0.5, 0.0, 0.25, 0.0, 0.0, 0.0, 0.0]])
+        dist_out = self.gen.adjust_or_truncate_probs(dist)
+        self.assertTrue(torch.equal(dist_out, dist_correct))

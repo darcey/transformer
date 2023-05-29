@@ -79,3 +79,6 @@ abs_max_len            = 300
 
 # Decoding method
 decoding_method        = "Sampling"
+sampling_method        = "Ancestral"
+sampling_k             = 10
+sampling_p             = 0.9

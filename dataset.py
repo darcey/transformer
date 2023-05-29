@@ -1,4 +1,5 @@
 # TODO(darcey): update the Seq2SeqTranslateBatch format once the generator returns more stuff
+# TODO(darcey): update unbatch to make sure it can handle stuff that doesn't end with EOS (also if it's going to remove EOS it should also remove BOS)
 # TODO(darcey): is sort_by_tgt_only actually necessary?
 
 # TODO(darcey): improve code sharing between dataset classes

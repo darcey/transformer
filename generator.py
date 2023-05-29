@@ -4,6 +4,12 @@
 
 # TODO(darcey): implement exact search
 # TODO(darcey): implement exact cluster search
+# TODO(darcey): implement temperature for sampling
+# TODO(darcey): implement diverse beam search
+# TODO(darcey): implement repetition constraints
+
+# TODO(darcey): think about whether there's a way to decrease space usage during truncated sampling (probably not, since top-p is ragged)
+# TODO(darcey): consider whether to make top-p, top-k, and temperature usable at the same time
 # TODO(darcey): consider whether beam search and sampling should multiply in the EOS probability if they reach the max length
 # TODO(darcey): also should max length include BOS?
 # TODO(darcey): in sampling outer loop, should I move samples off GPU?
@@ -12,7 +18,7 @@
 import copy
 import torch
 from torch.nn.utils.rnn import pad_sequence
-from configuration import DecodingMethod
+from configuration import DecodingMethod, SamplingMethod
 from cache import BeamCache
 
 class Generator:
@@ -38,10 +44,10 @@ class Generator:
         max_possible_length = max_lengths.max().item()
 
         cache = BeamCache()
-        autoregressive_fn = model.get_autoregressive_one_step_fn(src, cache)
-        match config.decoding_method:
+        autoregressive_fn = self.model.get_autoregressive_one_step_fn(src, cache)
+        match self.config.decoding_method:
             case DecodingMethod.SAMPLING:
-                return sample_outer_loop(src.size(0), max_lengths, max_possible_length, autoregressive_fn, cache)
+                return self.sample_outer_loop(src.size(0), max_lengths, max_possible_length, autoregressive_fn, cache)
 
     def sample_outer_loop(self, batch_size, max_lengths, max_possible_length, autoregressive_fn, cache):
         max_sents     = self.config.max_parallel_sentences
@@ -111,8 +117,12 @@ class Generator:
             next_token_probs = autoregressive_fn(cumulative_symbols, cache)    # [size, V]
             all_choices_cumulative_probs = cumulative_probs + next_token_probs # [size, 1] + [size, V] = [size, V]
 
+            # convert from log probs to probs; do any truncation etc.
+            next_token_probs = torch.exp(next_token_probs)
+            next_token_probs = self.adjust_or_truncate_probs(next_token_probs)
+
             # sample next token
-            chosen_idxs = torch.multinomial(torch.exp(next_token_probs), 1, replacement=True) # [size, 1]
+            chosen_idxs = torch.multinomial(next_token_probs, 1, replacement=True) # [size, 1]
             cumulative_probs = torch.gather(all_choices_cumulative_probs, -1, chosen_idxs)    # [size, 1]
             cumulative_symbols = torch.cat((cumulative_symbols, chosen_idxs), -1)             # [size, tgt_len]
 
@@ -120,3 +130,25 @@ class Generator:
         ret_symbols = pad_sequence(ret_symbols, batch_first=True, padding_value=self.pad).reshape(batch_size, num_samples, -1)
         ret_probs   = torch.stack(ret_probs).reshape(batch_size, num_samples)
         return ret_symbols, ret_probs
+
+    def adjust_or_truncate_probs(self, probs):
+        match self.config.sampling_method:
+            case SamplingMethod.ANCESTRAL:
+                return probs
+            case SamplingMethod.TOP_K:
+                vals, idxs = torch.topk(probs, k=self.config.sampling_k, dim=-1)
+                trunc_probs = torch.zeros_like(probs)
+                trunc_probs.scatter_(dim=-1, index=idxs, src=vals)
+                return trunc_probs
+            # Based on Ari Holtzman's implementation
+            # https://github.com/ari-holtzman/degen/blob/master/gen.py
+            case SamplingMethod.TOP_P:
+                vals, idxs = torch.sort(probs, dim=-1, descending=True)
+                cum_vals = torch.cumsum(vals, dim=-1)
+                to_remove = cum_vals > self.config.sampling_p
+                to_remove[:, 1:] = to_remove[:,:-1].clone()
+                to_remove[:, 0] = 0.0
+                vals[to_remove] = 0.0
+                trunc_probs = torch.empty_like(probs)
+                trunc_probs.scatter_(dim=-1, index=idxs, src=vals)
+                return trunc_probs

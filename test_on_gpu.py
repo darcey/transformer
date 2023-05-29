@@ -119,6 +119,30 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         self.assertAlmostEqual(a_samples.sum()/5000, 0.5, delta=0.02)
         self.assertAlmostEqual(b_samples.sum()/5000, 0.5, delta=0.02)
 
+    def testTopKSameOnGPU(self):
+        self.gen.config.decoding_method = DecodingMethod.SAMPLING
+        self.gen.config.sampling_method = SamplingMethod.TOP_K
+        self.gen.config.sampling_k = 5
+
+        dist_cpu = torch.rand(5,50)
+        dist_gpu = dist_cpu.clone().cuda()
+
+        dist_out_cpu = self.gen.adjust_or_truncate_probs(dist_cpu)
+        dist_out_gpu = self.gen.adjust_or_truncate_probs(dist_gpu)
+        self.assertTrue(torch.equal(dist_out_cpu, dist_out_gpu.cpu()))
+
+    def testTopPSameOnGPU(self):
+        self.gen.config.decoding_method = DecodingMethod.SAMPLING
+        self.gen.config.sampling_method = SamplingMethod.TOP_P
+        self.gen.config.sampling_p = 0.6
+
+        dist_cpu = torch.nn.functional.softmax(torch.rand(5,50), dim=-1)
+        dist_gpu = dist_cpu.clone()
+
+        dist_out_cpu = self.gen.adjust_or_truncate_probs(dist_cpu)
+        dist_out_gpu = self.gen.adjust_or_truncate_probs(dist_gpu)
+        self.assertTrue(torch.equal(dist_out_cpu, dist_out_gpu.cpu()))
+
 
 
 class TestCacheSameOnGPU(unittest.TestCase):
@@ -359,13 +383,13 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        x_cpu = torch.rand(100,10,512)
+        x_cpu = torch.rand(30,10,512)
         x_gpu = x_cpu.to("cuda:0")
-        y_cpu = torch.rand(100,20,512)
+        y_cpu = torch.rand(30,20,512)
         y_gpu = y_cpu.to("cuda:0")
-        xmask_cpu = torch.rand(100,1,10)
+        xmask_cpu = torch.rand(30,1,10)
         xmask_gpu = xmask_cpu.to("cuda:0")
-        ymask_cpu = torch.rand(100,1,20)
+        ymask_cpu = torch.rand(30,1,20)
         ymask_gpu = ymask_cpu.to("cuda:0")
         self.config.train.dropout = 0.0
         self.config.train.att_dropout = 0.0
