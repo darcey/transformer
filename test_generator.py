@@ -11,7 +11,7 @@ class MockModelDoesNothing:
         return 5
 
 class MockCacheDoesNothing:
-    def expand(self, num_samples):
+    def expand_to_num_samples(self, num_samples):
         return
     def trim_finished_sents(self, finished):
         return
@@ -274,7 +274,8 @@ class TestSampling(unittest.TestCase):
         self.assertTrue(torch.equal(symbols_out, symbols_correct))
         self.assertTrue(torch.equal(probs_out, probs_correct))
 
-    def testSampleSimpleDistribution(self):
+    def testSampleSimpleDistribution1(self):
+        # At beginning, splits off into two possibilities: all as or all bs.
         def mock_autoregressive_fn(cumul_symbols, cache):
             a_dist   = torch.tensor([0.0, 0.0, 0.5, 0.5, 0.0])
             b_dist   = torch.tensor([0.0, 0.0, 0.5, 0.0, 0.5])
@@ -295,6 +296,29 @@ class TestSampling(unittest.TestCase):
         # Should be roughly half a, half b
         self.assertAlmostEqual(a_samples.sum()/5000, 0.5, delta=0.02)
         self.assertAlmostEqual(b_samples.sum()/5000, 0.5, delta=0.02)
+
+    def testSampleSimpleDistribution2(self):
+        # Generates strings which alternate between as and bs
+        # Always starts with an a, ends with a b
+        def mock_autoregressive_fn(cumul_symbols, cache):
+            a_dist   = torch.tensor([0.0, 0.0, 0.5, 0.5, 0.0])
+            b_dist   = torch.tensor([0.0, 0.0, 0.0, 0.0, 1.0])
+            all_dist = (cumul_symbols[:,-1] == 1).unsqueeze(1).type(torch.float) * a_dist + \
+                       (cumul_symbols[:,-1] == 3).unsqueeze(1).type(torch.float) * b_dist + \
+                       (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * a_dist
+            return torch.log(all_dist)
+
+        max_lengths = torch.tensor([40]*1000)
+        symbols_out, probs_out = self.gen.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
+
+        # Every sample should have equal numbers of as and bs.
+        num_as = torch.eq(symbols_out, 3).sum(dim=-1)
+        num_bs = torch.eq(symbols_out, 4).sum(dim=-1)
+        self.assertTrue(torch.equal(num_as, num_bs))
+
+        # Should be roughly half length 2, half length 4, etc...
+        self.assertAlmostEqual((num_as == 0).sum()/5000, 0.5, delta=0.02)
+        self.assertAlmostEqual((num_as == 1).sum()/5000, 0.25, delta=0.02)
 
     def testTopK(self):
         dist = torch.tensor([1.0, 3.0, 5.0, 7.0, 9.0, 0.5, 2.0, 4.0, 6.0, 8.0])

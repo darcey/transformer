@@ -74,7 +74,7 @@ class TestTrainerSameOnGPU(unittest.TestCase):
 
 
 class MockCacheDoesNothing:
-    def expand(self, num_samples):
+    def expand_to_num_samples(self, num_samples):
         return
     def trim_finished_sents(self, finished):
         return

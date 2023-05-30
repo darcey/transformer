@@ -55,7 +55,7 @@ class Generator:
         num_samples   = self.config.num_beams_or_samples
         total_samples = batch_size * num_samples
 
-        if total_samples < max_sents:
+        if total_samples <= max_sents:
             all_samples, all_probs = self.sample(batch_size, num_samples, max_lengths, max_possible_length, autoregressive_fn, cache)
             final_samples = all_samples[:,0,:].clone()
             return final_samples, all_samples, all_probs
@@ -88,7 +88,7 @@ class Generator:
         cumulative_symbols = torch.tensor([self.bos] * size, device=self.device).unsqueeze(1) # [size, tgt_seq=1]
         cumulative_probs   = torch.zeros(size=(size, 1), device=self.device)                  # [size, dummy dimension for V]
         max_lengths        = max_lengths.unsqueeze(1).expand(-1, num_samples).reshape(size)   # [size]
-        cache.expand(num_samples)
+        cache.expand_to_num_samples(num_samples)
 
         ret_symbols = [None] * size
         ret_probs   = [None] * size
@@ -126,9 +126,9 @@ class Generator:
             next_token_probs = self.adjust_or_truncate_probs(next_token_probs)
 
             # sample next token
-            chosen_idxs = torch.multinomial(next_token_probs, 1, replacement=True) # [size, 1]
-            cumulative_probs = torch.gather(all_choices_cumulative_probs, -1, chosen_idxs)    # [size, 1]
-            cumulative_symbols = torch.cat((cumulative_symbols, chosen_idxs), -1)             # [size, tgt_len]
+            chosen_idxs = torch.multinomial(next_token_probs, 1, replacement=True)         # [size, 1]
+            cumulative_probs = torch.gather(all_choices_cumulative_probs, -1, chosen_idxs) # [size, 1]
+            cumulative_symbols = torch.cat((cumulative_symbols, chosen_idxs), -1)          # [size, tgt_len]
 
         # get return values into proper format
         ret_symbols = pad_sequence(ret_symbols, batch_first=True, padding_value=self.pad).reshape(batch_size, num_samples, -1)

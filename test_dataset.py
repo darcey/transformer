@@ -373,8 +373,43 @@ class TestSeq2SeqTranslateDataset(unittest.TestCase):
            ds_tgt.add_batch(tgt_batch)
 
         tgt_final_correct = src_sents
-        tgt_all_correct = [[sent]*3 for sent in src_sents]
+        tgt_all_correct = [([sent + [2]])*3 for sent in src_sents]
         tgt_final_actual, tgt_all_actual, probs_all_actual = ds_tgt.unbatch()
+        self.assertEqual(tgt_final_actual, tgt_final_correct)
+        self.assertEqual(tgt_all_actual, tgt_all_correct)
+
+    def testRoundTripInOrderMultipleDatasets(self):
+        src_sents = []
+        for i in range(50):
+            src_len = random.randint(6,15)
+            src_sent = [random.randint(5,9) for _ in range(src_len)]
+            src_sents.append(src_sent)
+        ds_src = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        ds_src.initialize_from_src_data(src_sents, sents_per_batch=5, in_order=True)
+
+        ds_tgt_1 = ds_src.get_empty_tgt_dataset()
+        ds_tgt_2 = ds_src.get_empty_tgt_dataset()
+        batch_count = 0
+        for src_batch in ds_src.batches:
+           tgt_final = src_batch.src.clone()
+           tgt_all = src_batch.src.clone().unsqueeze(1).expand(-1,3,-1)
+           tgt_probs = torch.rand(size=tgt_all.size())
+           tgt_batch = src_batch.with_translation(tgt_final, tgt_all, tgt_probs)
+           if batch_count < 5:
+               ds_tgt_1.add_batch(tgt_batch)
+           else:
+               ds_tgt_2.add_batch(tgt_batch)
+           batch_count += 1
+
+        tgt_final_correct = src_sents
+        tgt_all_correct = [([sent + [2]])*3 for sent in src_sents]
+
+        tgt_final_actual_1, tgt_all_actual_1, probs_all_actual_1 = ds_tgt_1.unbatch()
+        tgt_final_actual_2, tgt_all_actual_2, probs_all_actual_2 = ds_tgt_2.unbatch()
+        tgt_final_actual = tgt_final_actual_1 + tgt_final_actual_2
+        tgt_all_actual = tgt_all_actual_1 + tgt_all_actual_2
+        probs_all_actual = probs_all_actual_1 + probs_all_actual_2
+
         self.assertEqual(tgt_final_actual, tgt_final_correct)
         self.assertEqual(tgt_all_actual, tgt_all_correct)
 
@@ -392,7 +427,7 @@ class TestSeq2SeqTranslateDataset(unittest.TestCase):
            ds_tgt.add_batch(tgt_batch)
 
         tgt_final_correct = src_sents
-        tgt_all_correct = [[sent]*3 for sent in src_sents]
+        tgt_all_correct = [([sent + [2]])*3 for sent in src_sents]
         tgt_final_actual, tgt_all_actual, probs_all_actual = ds_tgt.unbatch()
         self.assertEqual(tgt_final_actual, tgt_final_correct)
         self.assertEqual(tgt_all_actual, tgt_all_correct)

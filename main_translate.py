@@ -44,6 +44,9 @@ if __name__ == '__main__':
     # read in vocab and data from file
     vocab = Vocabulary()
     vocab.read_from_file(args.vocab)
+    PAD = vocab.pad_idx()
+    BOS = vocab.bos_idx()
+    EOS = vocab.eos_idx()
     src = read_data(args.src)    
 
     # computations pertaining to the batch size
@@ -60,20 +63,20 @@ if __name__ == '__main__':
     # prepare the data
     src_unk = vocab.unk_data(src, src=True)
     src_idxs = vocab.tok_to_idx_data(src_unk)
-    src_batches = Seq2SeqTranslateDataset(vocab.pad_idx(), vocab.bos_idx(), vocab.eos_idx())
+    src_batches = Seq2SeqTranslateDataset(PAD, BOS, EOS)
     src_batches.initialize_from_src_data(src_idxs, batch_size, print_in_middle)
 
     # load the model from file
     tgt_support_mask = vocab.get_tgt_support_mask()
-    model = get_transformer(config, len(vocab), vocab.pad_idx(), tgt_support_mask)
+    model = get_transformer(config, len(vocab), PAD, tgt_support_mask)
     model.load_state_dict(torch.load(args.model))
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
     
     # make generator and translator
-    generator = Generator(model, config)
-    translator = Translator(model, generator)
+    generator = Generator(model, config, device, PAD, BOS, EOS)
+    translator = Translator(model, generator, device)
 
     # translate the data
     print_interval = PRINT_INTERVAL if print_in_middle else 0
@@ -81,8 +84,7 @@ if __name__ == '__main__':
         tgt_final, tgt_all, probs_all = tgt_batches.unbatch()
         tgt_final = vocab.idx_to_tok_data(tgt_final)
         tgt_all = vocab.idx_to_tok_data(tgt_all, nesting=3)
-        probs_all = vocab.idx_to_tok_data(probs_all, nesting=3)
-        print_translations(args.tgt, tgt_final, tgt_all, tgt_probs)
+        print_translations(args.tgt, tgt_final, tgt_all, probs_all)
 
     #if args.compute_bleu:
         # load gold

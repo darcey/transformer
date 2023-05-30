@@ -206,13 +206,14 @@ class Seq2SeqTranslateDataset:
         return tok_list
 
     def restore_order(self, tgt, orig_idxs):
-        return [tgt[i] for i in orig_idxs]
+        order = np.argsort(np.argsort(orig_idxs))
+        return [tgt[i] for i in order]
 
     def unbatch(self):
         all_orig_idxs = [idx for batch in self.batches for idx in batch.orig_idxs]
         all_tgt_final = [self.unpad(tgt_sent) for batch in self.batches for tgt_sent in batch.tgt_final.tolist()]
         all_tgt_final = self.restore_order(all_tgt_final, all_orig_idxs)
-        all_tgt_all = [[self.unpad(gen) for gen in tgt_sent] for batch in self.batches for tgt_sent in batch.tgt_all.tolist()]
+        all_tgt_all = [[self.unpad(gen, keep_bos_eos=True) for gen in tgt_sent] for batch in self.batches for tgt_sent in batch.tgt_all.tolist()]
         all_tgt_all = self.restore_order(all_tgt_all, all_orig_idxs)
         all_probs_all = [[prob for prob in tgt_sent] for batch in self.batches for tgt_sent in batch.probs_all.tolist()]
         all_probs_all = self.restore_order(all_probs_all, all_orig_idxs)
