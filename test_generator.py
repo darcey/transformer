@@ -101,12 +101,14 @@ class TestSampling(unittest.TestCase):
                                          [1,1],
                                          [1,1],
                                          [1,1]]])
+        samples_final_correct = torch.tensor([[1,1],[1,1]])
         probs_correct = torch.tensor([[1.0, 1.0, 1.0, 1.0, 1.0],
                                       [1.0, 1.0, 1.0, 1.0, 1.0]])
 
-        samples_out, probs_out = self.gen.sample_outer_loop(2, None, None, None, None)
+        samples_final_out, samples_out, probs_out = self.gen.sample_outer_loop(2, None, None, None, None)
 
         self.assertTrue(torch.equal(samples_out, samples_correct))
+        self.assertTrue(torch.equal(samples_final_out, samples_final_correct))
         self.assertTrue(torch.equal(probs_out, probs_correct))
 
     def testSampleOuterLoopManyIter(self):
@@ -134,11 +136,13 @@ class TestSampling(unittest.TestCase):
                                          [3,3,3,3,3,3],
                                          [3,3,3,3,3,3],
                                          [3,3,3,3,3,3]]])
+        samples_final_correct = torch.tensor([[1,1,0,0,0,0]])
         probs_correct = torch.tensor([[1.0,1.0,1.0,1.0,1.0,2.0,2.0,2.0,2.0,2.0,3.0,3.0,3.0]])
 
-        samples_out, probs_out = self.gen.sample_outer_loop(1, torch.rand(5), None, None, None)
+        samples_final_out, samples_out, probs_out = self.gen.sample_outer_loop(1, torch.rand(5), None, None, None)
 
         self.assertTrue(torch.equal(samples_out, samples_correct))
+        self.assertTrue(torch.equal(samples_final_out, samples_final_correct))
         self.assertTrue(torch.equal(probs_out, probs_correct))
 
     def testSamplePrunesEOS(self):

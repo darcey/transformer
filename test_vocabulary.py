@@ -58,12 +58,22 @@ class TestVocabulary(unittest.TestCase):
     def testTokIdxMappings(self):
         vocab = Vocabulary()
         vocab.initialize_from_data(self.fake_src, self.fake_tgt)
+
         for tok in vocab.special_toks | vocab.src_tgt_toks:
             self.assertEqual(vocab.idx_to_tok(vocab.tok_to_idx(tok)), tok)
         for idx in range(len(vocab)):
             self.assertEqual(vocab.tok_to_idx(vocab.idx_to_tok(idx)), idx)
+
+        with self.assertRaises(ValueError):
+            vocab.tok_to_idx_data(["the"], nesting=1)
+        with self.assertRaises(ValueError):
+            vocab.idx_to_tok_data([5], nesting=1)
         self.assertEqual(vocab.idx_to_tok_data(vocab.tok_to_idx_data(self.fake_src)), self.fake_src)
         self.assertEqual(vocab.idx_to_tok_data(vocab.tok_to_idx_data(self.fake_tgt)), self.fake_tgt)
+        fake_src_3 = [self.fake_src.copy(), self.fake_src.copy(), self.fake_src.copy()]
+        fake_tgt_3 = [self.fake_tgt.copy(), self.fake_tgt.copy(), self.fake_tgt.copy()]
+        self.assertEqual(vocab.idx_to_tok_data(vocab.tok_to_idx_data(fake_src_3, nesting=3), nesting=3), fake_src_3)
+        self.assertEqual(vocab.idx_to_tok_data(vocab.tok_to_idx_data(fake_tgt_3, nesting=3), nesting=3), fake_tgt_3)
 
     def testUnk(self):
         vocab = Vocabulary()

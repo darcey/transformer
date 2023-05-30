@@ -124,11 +124,21 @@ class Vocabulary:
         return self.tok_to_idx(SpecialTokens.EOS)
 
     # assumes data is a list of list of tokens
-    def tok_to_idx_data(self, data):
-        return [[self.tok_to_idx(tok) for tok in sent] for sent in data]
+    def tok_to_idx_data(self, data, nesting=2):
+        if nesting == 2:
+            return [[self.tok_to_idx(tok) for tok in sent] for sent in data]
+        elif nesting > 2:
+            return [self.tok_to_idx_data(lists, nesting-1) for lists in data]
+        else:
+            raise ValueError("Nesting must be at least 2")
     # assumes data is a list of list of indices
-    def idx_to_tok_data(self, data):
-        return [[self.idx_to_tok(idx) for idx in sent] for sent in data]
+    def idx_to_tok_data(self, data, nesting=2):
+        if nesting == 2:
+            return [[self.idx_to_tok(idx) for idx in sent] for sent in data]
+        elif nesting > 2:
+            return [self.idx_to_tok_data(lists, nesting-1) for lists in data]
+        else:
+            raise ValueError("Nesting must be at least 2")
     # assumes t is a single token
     def tok_to_idx(self, t):
         return self.t_to_i[t]

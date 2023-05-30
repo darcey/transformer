@@ -12,7 +12,7 @@ from translator import Translator
 from generator import Generator
 from transformer import get_transformer
 
-DUMP_INTERVAL = 100000
+PRINT_INTERVAL = 100000
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -55,12 +55,13 @@ if __name__ == '__main__':
         batch_size = int(max_parallel_sentences / num_beams_or_samples)
 
     num_translations = len(src) * num_beams_or_samples
-    dump_translations = (num_translations > DUMP_INTERVAL)
+    print_in_middle = (num_translations > PRINT_INTERVAL)
 
     # prepare the data
     src_unk = vocab.unk_data(src, src=True)
     src_idxs = vocab.tok_to_idx_data(src_unk)
-    batches = Seq2SeqTranslateDataset(src_idxs, vocab, batch_size, dump_translations)
+    src_batches = Seq2SeqTranslateDataset(vocab.pad_idx(), vocab.bos_idx(), vocab.eos_idx())
+    src_batches.initialize_from_src_data(src_idxs, batch_size, print_in_middle)
 
     # load the model from file
     tgt_support_mask = vocab.get_tgt_support_mask()
@@ -75,11 +76,13 @@ if __name__ == '__main__':
     translator = Translator(model, generator)
 
     # translate the data
-    print_every = DUMP_INTERVAL if dump_translations else 0
-    for translations in translator.translate(batches, print_every):
-        translations_all = batches.unbatch(translations)
-        translations_all = vocab.idx_to_tok_data(translations_all)
-        print_translations(translations_all)
+    print_interval = PRINT_INTERVAL if print_in_middle else 0
+    for tgt_batches in translator.translate(src_batches, print_interval):
+        tgt_final, tgt_all, probs_all = tgt_batches.unbatch()
+        tgt_final = vocab.idx_to_tok_data(tgt_final)
+        tgt_all = vocab.idx_to_tok_data(tgt_all, nesting=3)
+        probs_all = vocab.idx_to_tok_data(probs_all, nesting=3)
+        print_translations(args.tgt, tgt_final, tgt_all, tgt_probs)
 
     #if args.compute_bleu:
         # load gold

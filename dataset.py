@@ -1,7 +1,4 @@
-# TODO(darcey): update the Seq2SeqTranslateBatch format once the generator returns more stuff
-# TODO(darcey): update unbatch to make sure it can handle stuff that doesn't end with EOS (also if it's going to remove EOS it should also remove BOS)
 # TODO(darcey): is sort_by_tgt_only actually necessary?
-
 # TODO(darcey): improve code sharing between dataset classes
 # TODO(darcey): think about adding code for Toan and Kenton's data augmentation strategy that glues multiple sentences together before training
 # TODO(darcey): write dataset classes for classification tasks
@@ -27,9 +24,11 @@ class Seq2SeqTranslateBatch:
         self.src       = src
         self.orig_idxs = orig_idxs
 
-    def with_translation(self, tgt_all):
-        new_batch = Seq2SeqTranslateBatch(self.src, self.orig_idxs)
+    def with_translation(self, tgt_final, tgt_all, probs_all):
+        new_batch = Seq2SeqTranslateBatch(self.src.clone(), self.orig_idxs.copy())
+        new_batch.tgt_final = tgt_final
         new_batch.tgt_all = tgt_all
+        new_batch.probs_all = probs_all
         return new_batch
 
 
@@ -37,10 +36,10 @@ class Seq2SeqTranslateBatch:
 class Seq2SeqTrainDataset:
 
     # assumes src, tgt are lists of lists of token indices
-    def __init__(self, src, tgt, vocab, toks_per_batch, sort_by_tgt_only=False, randomize=False):
-        self.pad_idx = vocab.pad_idx()
-        self.bos_idx = vocab.bos_idx()
-        self.eos_idx = vocab.eos_idx()
+    def __init__(self, src, tgt, toks_per_batch, pad_idx, bos_idx, eos_idx, sort_by_tgt_only=False, randomize=False):
+        self.pad_idx = pad_idx
+        self.bos_idx = bos_idx
+        self.eos_idx = eos_idx
 
         if sort_by_tgt_only:
             sorted_src, sorted_tgt = self.sort_by_tgt_len(src, tgt)
@@ -138,18 +137,21 @@ class Seq2SeqTrainDataset:
 class Seq2SeqTranslateDataset:
 
     # assumes src is a list of lists of token indices
-    def __init__(self, src, vocab, sents_per_batch, in_order=False):
-        self.pad_idx = vocab.pad_idx()
-        self.eos_idx = vocab.eos_idx()
+    def __init__(self, pad_idx, bos_idx, eos_idx):
+        self.pad_idx = pad_idx
+        self.bos_idx = bos_idx
+        self.eos_idx = eos_idx
+        self.batches = []
 
+    def __len__(self):
+        return len(self.batches)
+
+    def initialize_from_src_data(self, src, sents_per_batch, in_order=False):
         if not in_order:
             src, orig_idxs = self.sort_by_len(src)
         else:
             orig_idxs = list(range(len(src)))
         self.batches = self.make_batches(src, orig_idxs, sents_per_batch)
-
-    def __len__(self):
-        return len(self.batches)
 
     def sort_by_len(self, src):
         lens = [len(src_sent) for src_sent in src]
@@ -181,18 +183,37 @@ class Seq2SeqTranslateDataset:
 
         return Seq2SeqTranslateBatch(src_tensor, orig_idxs)
 
-    def unpad(self, gen):
+    def get_empty_tgt_dataset(self):
+        return Seq2SeqTranslateDataset(self.pad_idx, self.bos_idx, self.eos_idx)
+
+    def add_batch(self, batch):
+        self.batches.append(batch)
+
+    def unpad(self, gen, keep_bos_eos=False):
         tok_list = []
         for tok in gen:
-            if tok == self.eos_idx:
+            if tok == self.bos_idx:
+                if keep_bos_eos:
+                    tok_list.append(tok)
+            elif tok == self.eos_idx:
+                if keep_bos_eos:
+                    tok_list.append(tok)
                 break
-            tok_list.append(tok)
+            elif tok == self.pad_idx:
+                break
+            else:
+                tok_list.append(tok)
         return tok_list
 
     def restore_order(self, tgt, orig_idxs):
         return [tgt[i] for i in orig_idxs]
 
-    def unbatch(self, batches):
-        all_tgts = [[self.unpad(gen) for gen in tgt_sent] for batch in batches for tgt_sent in batch.tgt_all.tolist()]
-        all_orig_idxs = [idx for batch in batches for idx in batch.orig_idxs]
-        return self.restore_order(all_tgts, all_orig_idxs)
+    def unbatch(self):
+        all_orig_idxs = [idx for batch in self.batches for idx in batch.orig_idxs]
+        all_tgt_final = [self.unpad(tgt_sent) for batch in self.batches for tgt_sent in batch.tgt_final.tolist()]
+        all_tgt_final = self.restore_order(all_tgt_final, all_orig_idxs)
+        all_tgt_all = [[self.unpad(gen) for gen in tgt_sent] for batch in self.batches for tgt_sent in batch.tgt_all.tolist()]
+        all_tgt_all = self.restore_order(all_tgt_all, all_orig_idxs)
+        all_probs_all = [[prob for prob in tgt_sent] for batch in self.batches for tgt_sent in batch.probs_all.tolist()]
+        all_probs_all = self.restore_order(all_probs_all, all_orig_idxs)
+        return all_tgt_final, all_tgt_all, all_probs_all

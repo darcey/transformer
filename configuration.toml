@@ -37,7 +37,7 @@ max_epochs             = 200
 epoch_size             = 1000
 
 # Batching
-batch_size             = 8192
+batch_size             = 4096
 sort_by_tgt_only       = true
 
 # Learning rate

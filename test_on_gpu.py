@@ -98,6 +98,9 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
     # This is the same test function as in test_generator;
     # just need to make sure it also works on GPU.
     def testSampleSimpleDistribution(self):
+        if not torch.cuda.is_available():
+            return
+
         def mock_autoregressive_fn(cumul_symbols, cache):
             a_dist   = torch.tensor([0.0, 0.0, 0.5, 0.5, 0.0], device="cuda:0")
             b_dist   = torch.tensor([0.0, 0.0, 0.5, 0.0, 0.5], device="cuda:0")
@@ -120,6 +123,9 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         self.assertAlmostEqual(b_samples.sum()/5000, 0.5, delta=0.02)
 
     def testTopKSameOnGPU(self):
+        if not torch.cuda.is_available():
+            return
+
         self.gen.config.decoding_method = DecodingMethod.SAMPLING
         self.gen.config.sampling_method = SamplingMethod.TOP_K
         self.gen.config.sampling_k = 5
@@ -132,6 +138,9 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         self.assertTrue(torch.equal(dist_out_cpu, dist_out_gpu.cpu()))
 
     def testTopPSameOnGPU(self):
+        if not torch.cuda.is_available():
+            return
+
         self.gen.config.decoding_method = DecodingMethod.SAMPLING
         self.gen.config.sampling_method = SamplingMethod.TOP_P
         self.gen.config.sampling_p = 0.6

@@ -1,19 +1,20 @@
 # TODO(darcey): copy beam search code over from Toan's code
 # TODO(darcey): implement MBR
 # TODO(darcey): implement cluster search
-
 # TODO(darcey): implement exact search
 # TODO(darcey): implement exact cluster search
 # TODO(darcey): implement temperature for sampling
 # TODO(darcey): implement diverse beam search
 # TODO(darcey): implement repetition constraints
 
+# TODO(darcey): learn where torch uses a copy vs. view, and make sure I am using clone() in all/only the right places
 # TODO(darcey): think about whether there's a way to decrease space usage during truncated sampling (probably not, since top-p is ragged)
 # TODO(darcey): consider whether to make top-p, top-k, and temperature usable at the same time
 # TODO(darcey): consider whether beam search and sampling should multiply in the EOS probability if they reach the max length
 # TODO(darcey): also should max length include BOS?
 # TODO(darcey): in sampling outer loop, should I move samples off GPU?
 # TODO(darcey): consider changing generate() to be a yield-style function, in order to accommodate extremely large numbers of samples where we need to print midway through
+# TODO(darcey): come up with a better return type for the generator -- an object? a dict?
 
 import copy
 import torch
@@ -55,7 +56,9 @@ class Generator:
         total_samples = batch_size * num_samples
 
         if total_samples < max_sents:
-            return self.sample(batch_size, num_samples, max_lengths, max_possible_length, autoregressive_fn, cache)
+            all_samples, all_probs = self.sample(batch_size, num_samples, max_lengths, max_possible_length, autoregressive_fn, cache)
+            final_samples = all_samples[:,0,:].clone()
+            return final_samples, all_samples, all_probs
 
         if batch_size > 1:
             raise Exception("If number of samples exceeds maximum number of parallel sentences, batch size must be 1")
@@ -70,11 +73,12 @@ class Generator:
             all_probs.append(probs)
             total_samples -= curr_num_samples
 
-        max_seq_len = max([samples.size(2) for samples in all_samples])
-        all_samples = [torch.nn.functional.pad(samples, (0, max_seq_len - samples.size(2)), value=self.pad) for samples in all_samples]
-        all_samples = torch.cat(all_samples, dim=1)
-        all_probs   = torch.cat(all_probs, dim=1)
-        return all_samples, all_probs
+        max_seq_len   = max([samples.size(2) for samples in all_samples])
+        all_samples   = [torch.nn.functional.pad(samples, (0, max_seq_len - samples.size(2)), value=self.pad) for samples in all_samples]
+        all_samples   = torch.cat(all_samples, dim=1)
+        final_samples = all_samples[:,0,:].clone()
+        all_probs     = torch.cat(all_probs, dim=1)
+        return final_samples, all_samples, all_probs
 
     # max_lengths: [batch_size]
     # ret_symbols: [batch_size, num_samples, tgt_len]

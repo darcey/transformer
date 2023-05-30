@@ -56,18 +56,32 @@ if __name__ == '__main__':
     # do unking
     train_src_unk = vocab.unk_data(train_src, src=True)
     train_tgt_unk = vocab.unk_data(train_tgt, src=False)
-    dev_src_unk = vocab.unk_data(dev_src, src=True)
-    dev_tgt_unk = vocab.unk_data(dev_tgt, src=False)
+    dev_src_unk   = vocab.unk_data(dev_src, src=True)
+    dev_tgt_unk   = vocab.unk_data(dev_tgt, src=False)
 
     # convert from toks to idxs
     train_src_idxs = vocab.tok_to_idx_data(train_src_unk)
     train_tgt_idxs = vocab.tok_to_idx_data(train_tgt_unk)
-    dev_src_idxs = vocab.tok_to_idx_data(dev_src_unk)
-    dev_tgt_idxs = vocab.tok_to_idx_data(dev_tgt_unk)
-    
+    dev_src_idxs   = vocab.tok_to_idx_data(dev_src_unk)
+    dev_tgt_idxs   = vocab.tok_to_idx_data(dev_tgt_unk)
+
     # make the data batches
-    train_batches = Seq2SeqTrainDataset(train_src_idxs, train_tgt_idxs, vocab, config.train.batch_size, sort_by_tgt_only=config.train.sort_by_tgt_only, randomize=True)
-    dev_batches = Seq2SeqTrainDataset(dev_src_idxs, dev_tgt_idxs, vocab, config.train.batch_size, sort_by_tgt_only=False, randomize=False)
+    train_batches = Seq2SeqTrainDataset(src=train_src_idxs,
+                                        tgt=train_tgt_idxs,
+                                        toks_per_batch=config.train.batch_size,
+                                        pad_idx=vocab.pad_idx(),
+                                        bos_idx=vocab.bos_idx(),
+                                        eos_idx=vocab.eos_idx(),
+                                        sort_by_tgt_only=config.train.sort_by_tgt_only,
+                                        randomize=True)
+    dev_batches = Seq2SeqTrainDataset(src=dev_src_idxs,
+                                      tgt=dev_tgt_idxs,
+                                      toks_per_batch=config.train.batch_size,
+                                      pad_idx=vocab.pad_idx(),
+                                      bos_idx=vocab.bos_idx(),
+                                      eos_idx=vocab.eos_idx(),
+                                      sort_by_tgt_only=False,
+                                      randomize=False)
     #if config.train.compute_bleu:
     #    dev_translate_batches = Seq2SeqTranslateDataset(dev_src_idxs, vocab, config.generation.max_parallel_sentences, ....)
 

@@ -10,14 +10,10 @@ from vocabulary import *
 
 class TestSeq2SeqTrainDataset(unittest.TestCase):
 
-    def setUp(self):
-        self.vocab = Vocabulary()
-        self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
-
     def testSortByTgtLenToyExample(self):
         src = [[1,2,3,4],[1,2,3,4,5],[1,2],[1,2,3]]
         tgt = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15]]
-        ds = Seq2SeqTrainDataset(src, tgt, self.vocab, toks_per_batch=100)
+        ds = Seq2SeqTrainDataset(src, tgt, toks_per_batch=100, pad_idx=0, bos_idx=1, eos_idx=2)
         
         sorted_src_correct = [[1,2],[1,2,3,4,5],[1,2,3,4],[1,2,3]]
         sorted_tgt_correct = [[10,11,12],[10,11,12,13],[10,11,12,13,14],[10,11,12,13,14,15]]
@@ -28,7 +24,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testSortByBothLensToyExample(self):
         src = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,7,9]]
         tgt = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15],[10,11,12,14]]
-        ds = Seq2SeqTrainDataset(src, tgt, self.vocab, toks_per_batch=100)
+        ds = Seq2SeqTrainDataset(src, tgt, toks_per_batch=100, pad_idx=0, bos_idx=1, eos_idx=2)
 
         sorted_src_correct = [[5,6],[5,6,7,9],[5,6,7,8,9],[5,6,7,8],[5,6,7]]
         sorted_tgt_correct = [[10,11,12],[10,11,12,14],[10,11,12,13],[10,11,12,13,14],[10,11,12,13,14,15]]
@@ -45,7 +41,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
             src_data.append([1]*src_length)
             tgt_data.append([1]*tgt_length)
 
-        ds = Seq2SeqTrainDataset(src_data, tgt_data, self.vocab, toks_per_batch=100)
+        ds = Seq2SeqTrainDataset(src_data, tgt_data, toks_per_batch=100, pad_idx=0, bos_idx=1, eos_idx=2)
         sorted_src, sorted_tgt = ds.sort_by_both_lens(src_data, tgt_data)
 
         tgt_lens = [len(sent) for sent in sorted_tgt]
@@ -59,11 +55,9 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7]]
         tgt_sents = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15]]
         sent_list = list(zip(src_sents, tgt_sents))
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, toks_per_batch=100)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, toks_per_batch=100, pad_idx=0, bos_idx=1, eos_idx=2)
         
-        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
-        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
-        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        PAD, BOS, EOS = 0, 1, 2
         src_correct = torch.tensor([[5,6,7,8,EOS,PAD],
                                     [5,6,7,8,9,EOS],
                                     [5,6,EOS,PAD,PAD,PAD],
@@ -86,11 +80,9 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testMakeBatches(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
         tgt_sents = [[10,11,12],[10,11,12,13],[10,11,12,14],[10,11,12,13,14],[10,11],[10,12,13],[10,11,12,13,14,15]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, toks_per_batch=8)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, toks_per_batch=8, pad_idx=0, bos_idx=1, eos_idx=2)
 
-        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
-        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
-        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        PAD, BOS, EOS = 0, 1, 2
         src_correct_1 = torch.tensor([[5,6,EOS,PAD,PAD],[5,6,8,9,EOS]])
         src_correct_2 = torch.tensor([[5,6,7,EOS],[7,8,EOS,PAD]])
         src_correct_3 = torch.tensor([[5,6,7,8,9,EOS],[5,6,7,8,EOS,PAD]])
@@ -137,11 +129,9 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
         tgt_sents = [[10,11,12],[10,11,12,13],[10,11,12,14],[10,11,12,13,14],[10,11],[10,12,13],[10,11,12,13,14,15]]
         # sorted src: [[5,6,7,8,9],[5,6],[5,6,7,8],[5,6,7],[5,6,8,9],[7,8],[5,6,9]]
         # sorted tgt: [[10,11],[10,11,12],[10,12,13],[10,11,12,14],[10,11,12,13],[10,11,12,13,14],[10,11,12,13,14,15]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, toks_per_batch=8)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, toks_per_batch=8, pad_idx=0, bos_idx=1, eos_idx=2)
         
-        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
-        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
-        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        PAD, BOS, EOS = 0, 1, 2
         src_correct_1 = torch.tensor([[5,6,7,8,9,EOS],[5,6,EOS,PAD,PAD,PAD]])
         src_correct_2 = torch.tensor([[5,6,7,8,EOS],[5,6,7,EOS,PAD]])
         src_correct_3 = torch.tensor([[5,6,8,9,EOS],[7,8,EOS,PAD,PAD]])
@@ -182,7 +172,7 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
     def testIterRandomize(self):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,8,9]]
         tgt_sents = [[10,11,12,13,14],[10,11,12,13],[10,11,12],[10,11,12,13,14,15],[10,11,12,13]]
-        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, self.vocab, 8, randomize=True)
+        ds = Seq2SeqTrainDataset(src_sents, tgt_sents, toks_per_batch=8, pad_idx=0, bos_idx=1, eos_idx=2, randomize=True)
         ds.batches = [1, 2, 3, 4]
         
         # test one iteration
@@ -208,13 +198,13 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
 
 class TestSeq2SeqTranslateDataset(unittest.TestCase):
 
-    def setUp(self):
-        self.vocab = Vocabulary()
-        self.vocab.initialize_from_data([['4','5','6','7','8','9']],[['10','11','12','13','14','15']])
+    def testInit(self):
+        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        self.assertEqual(len(ds), 0)
 
     def testSortByLen(self):
         src = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,7,9]]
-        ds = Seq2SeqTranslateDataset(src, self.vocab, sents_per_batch=2)
+        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
 
         sorted_src_correct = [[5,6],[5,6,7],[5,6,7,8],[5,6,7,9],[5,6,7,8,9]]
         orig_idxs_correct = [2,4,0,1,3]
@@ -225,11 +215,9 @@ class TestSeq2SeqTranslateDataset(unittest.TestCase):
     def testMakeOneBatch(self):
         src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7]]
         orig_idxs = [0,1,2,3]
-        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=4)
+        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
 
-        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
-        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
-        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        PAD, BOS, EOS = 0, 1, 2
         src_correct = torch.tensor([[5,6,7,8,EOS,PAD],
                                     [5,6,7,8,9,EOS],
                                     [5,6,EOS,PAD,PAD,PAD],
@@ -241,11 +229,9 @@ class TestSeq2SeqTranslateDataset(unittest.TestCase):
     def testMakeBatches(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
         orig_idxs = [0,1,2,3,4,5,6]
-        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2)
+        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
 
-        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
-        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
-        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        PAD, BOS, EOS = 0, 1, 2
         src_correct_1 = torch.tensor([[5,6,EOS,PAD,PAD],[5,6,8,9,EOS]])
         src_correct_2 = torch.tensor([[5,6,7,EOS],[7,8,EOS,PAD]])
         src_correct_3 = torch.tensor([[5,6,7,8,9,EOS],[5,6,7,8,EOS,PAD]])
@@ -267,13 +253,12 @@ class TestSeq2SeqTranslateDataset(unittest.TestCase):
         self.assertTrue(torch.equal(actual[3].src, src_correct_4))
         self.assertEqual(list(actual[3].orig_idxs), [6])
 
-    def testInitInOrder(self):
+    def testInitFromSrcDataInOrder(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
-        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2, in_order=True)
+        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        ds.initialize_from_src_data(src_sents, sents_per_batch=2, in_order=True)
 
-        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
-        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
-        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        PAD, BOS, EOS = 0, 1, 2
         src_correct_1 = torch.tensor([[5,6,EOS,PAD,PAD],[5,6,8,9,EOS]])
         src_correct_2 = torch.tensor([[5,6,7,EOS],[7,8,EOS,PAD]])
         src_correct_3 = torch.tensor([[5,6,7,8,9,EOS],[5,6,7,8,EOS,PAD]])
@@ -295,15 +280,14 @@ class TestSeq2SeqTranslateDataset(unittest.TestCase):
         self.assertTrue(torch.equal(actual[3].src, src_correct_4))
         self.assertEqual(list(actual[3].orig_idxs), [6])
 
-    def testInitSorted(self):
+    def testInitFromSrcDataSorted(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
         # sorted src: [[5,6],[7,8],[5,6,7],[5,6,9],[5,6,8,9],[5,6,7,8],[5,6,7,8,9]]
         # orig idxs: [0,4,2,1,6,5,3]
-        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2, in_order=False)
+        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        ds.initialize_from_src_data(src_sents, sents_per_batch=2, in_order=False)
 
-        PAD = self.vocab.tok_to_idx(SpecialTokens.PAD)
-        BOS = self.vocab.tok_to_idx(SpecialTokens.BOS)
-        EOS = self.vocab.tok_to_idx(SpecialTokens.EOS)
+        PAD, BOS, EOS = 0, 1, 2
         src_correct_1 = torch.tensor([[5,6,EOS],[7,8,EOS]])
         src_correct_2 = torch.tensor([[5,6,7,EOS],[5,6,9,EOS]])
         src_correct_3 = torch.tensor([[5,6,8,9,EOS],[5,6,7,8,EOS]])
@@ -325,19 +309,50 @@ class TestSeq2SeqTranslateDataset(unittest.TestCase):
         self.assertTrue(torch.equal(actual[3].src, src_correct_4))
         self.assertEqual(list(actual[3].orig_idxs), [3])
 
+    def testGetEmptyTgtDataset(self):
+        src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
+        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        ds.initialize_from_src_data(src_sents, sents_per_batch=2, in_order=False)
+
+        new_ds = ds.get_empty_tgt_dataset()
+        self.assertEqual(len(new_ds), 0)
+        self.assertEqual(new_ds.pad_idx, ds.pad_idx)
+        self.assertEqual(new_ds.bos_idx, ds.bos_idx)
+        self.assertEqual(new_ds.eos_idx, ds.eos_idx)
+
+    def testAddBatch(self):
+        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        self.assertEqual(len(ds), 0)
+        b1 = Seq2SeqTranslateBatch([], [])
+        ds.add_batch(b1)
+        self.assertEqual(len(ds), 1)
+        b2 = Seq2SeqTranslateBatch([], [])
+        ds.add_batch(b2)
+        self.assertEqual(len(ds), 2)
+
     def testUnpad(self):
         src_sents = []
-        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2)
+        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
 
-        ds.eos_idx = 0
-        gen = [1, 2, 3, 1, 2, 0, 0, 0]
-        gen_unpad_correct = [1, 2, 3, 1, 2]
-        gen_unpad_actual = ds.unpad(gen)
-        self.assertEqual(gen_unpad_actual, gen_unpad_correct)
+        gen_with_eos = [1, 3, 4, 5, 6, 7, 2, 0, 0, 0]
+        gen_no_eos = [1, 3, 4, 5, 6, 7, 0, 0, 0, 0]
+        
+        gen_unpad_correct = [3, 4, 5, 6, 7]
+        gen_with_eos_unpad_actual = ds.unpad(gen_with_eos)
+        gen_no_eos_unpad_actual = ds.unpad(gen_no_eos)
+        self.assertEqual(gen_with_eos_unpad_actual, gen_unpad_correct)
+        self.assertEqual(gen_no_eos_unpad_actual, gen_unpad_correct)
+
+        gen_with_eos_unpad_correct = [1, 3, 4, 5, 6, 7, 2]
+        gen_no_eos_unpad_correct = [1, 3, 4, 5, 6, 7]
+        gen_with_eos_unpad_actual = ds.unpad(gen_with_eos, keep_bos_eos=True)
+        gen_no_eos_unpad_actual = ds.unpad(gen_no_eos, keep_bos_eos=True)
+        self.assertEqual(gen_with_eos_unpad_actual, gen_with_eos_unpad_correct)
+        self.assertEqual(gen_no_eos_unpad_actual, gen_no_eos_unpad_correct)
 
     def testRestoreOrder(self):
         src_sents = []
-        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2)
+        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
 
         tgt_orig = [[10,11,12],[10,11,12,13],[10,11,12,14],[10,11,12,13,14],[10,11],[10,12,13],[10,11,12,13,14,15]]
         tgt_sorted = [[10,11],[10,11,12],[10,12,13],[10,11,12,13],[10,11,12,14],[10,11,12,13,14],[10,11,12,13,14,15]]
@@ -346,26 +361,38 @@ class TestSeq2SeqTranslateDataset(unittest.TestCase):
 
     def testRoundTripInOrder(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
-        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2, in_order=True)
+        ds_src = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        ds_src.initialize_from_src_data(src_sents, sents_per_batch=2, in_order=True)
 
-        tgt_batches = []
-        for src_batch in ds.batches:
-           tgt = src_batch.src.clone().unsqueeze(1).expand(-1,3,-1)
-           tgt_batches.append(src_batch.with_translation(tgt))
+        ds_tgt = ds_src.get_empty_tgt_dataset()
+        for src_batch in ds_src.batches:
+           tgt_final = src_batch.src.clone()
+           tgt_all = src_batch.src.clone().unsqueeze(1).expand(-1,3,-1)
+           tgt_probs = torch.rand(size=tgt_all.size())
+           tgt_batch = src_batch.with_translation(tgt_final, tgt_all, tgt_probs)
+           ds_tgt.add_batch(tgt_batch)
 
-        correct = [[sent]*3 for sent in src_sents]
-        actual = ds.unbatch(tgt_batches)
-        self.assertEqual(actual, correct)
+        tgt_final_correct = src_sents
+        tgt_all_correct = [[sent]*3 for sent in src_sents]
+        tgt_final_actual, tgt_all_actual, probs_all_actual = ds_tgt.unbatch()
+        self.assertEqual(tgt_final_actual, tgt_final_correct)
+        self.assertEqual(tgt_all_actual, tgt_all_correct)
 
     def testRoundTripSorted(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
-        ds = Seq2SeqTranslateDataset(src_sents, self.vocab, sents_per_batch=2, in_order=False)
+        ds_src = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        ds_src.initialize_from_src_data(src_sents, sents_per_batch=2, in_order=False)
 
-        tgt_batches = []
-        for src_batch in ds.batches:
-           tgt = src_batch.src.clone().unsqueeze(1).expand(-1,3,-1)
-           tgt_batches.append(src_batch.with_translation(tgt))
+        ds_tgt = ds_src.get_empty_tgt_dataset()
+        for src_batch in ds_src.batches:
+           tgt_final = src_batch.src.clone()
+           tgt_all = src_batch.src.clone().unsqueeze(1).expand(-1,3,-1)
+           tgt_probs = torch.rand(size=tgt_all.size())
+           tgt_batch = src_batch.with_translation(tgt_final, tgt_all, tgt_probs)
+           ds_tgt.add_batch(tgt_batch)
 
-        correct = [[sent]*3 for sent in src_sents]
-        actual = ds.unbatch(tgt_batches)
-        self.assertEqual(actual, correct)
+        tgt_final_correct = src_sents
+        tgt_all_correct = [[sent]*3 for sent in src_sents]
+        tgt_final_actual, tgt_all_actual, probs_all_actual = ds_tgt.unbatch()
+        self.assertEqual(tgt_final_actual, tgt_final_correct)
+        self.assertEqual(tgt_all_actual, tgt_all_correct)
