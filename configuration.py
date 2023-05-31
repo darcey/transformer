@@ -40,6 +40,11 @@ class LearningRateStrategy(Enum):
     WARMUP_VAL_DECAY = "Warmup_ValDecay"
     NO_WARMUP_VAL_DECAY = "NoWarmup_ValDecay"
 
+class ClipGrad(Enum):
+    NONE = "None"
+    MAX = "Max"
+    NORM = "Norm"
+
 class DecodingMethod(Enum):
     SAMPLING = "Sampling"
 
@@ -61,6 +66,7 @@ def read_config(filename):
     config_train_lr = Namespace(**config_dict["training"]["lr"])
     config_train_lr.lr_strategy = LearningRateStrategy(config_train_lr.lr_strategy)
     config_train.lr = config_train_lr
+    config_train.clip_grad = ClipGrad(config_train.clip_grad)
     
     config_gen = Namespace(**config_dict["generation"])
     config_gen.decoding_method = DecodingMethod(config_gen.decoding_method)

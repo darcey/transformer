@@ -52,6 +52,11 @@ lr.stop_lr             = 5e-5
 # Used by NoWarmup_ValDecay
 lr.start_lr            = 3e-4
 
+# Gradient clipping
+clip_grad              = "Norm"
+clip_grad_max          = 0.5
+clip_grad_scale        = 1.0
+
 # Initialization
 use_toan_init          = true
 

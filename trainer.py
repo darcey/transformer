@@ -5,9 +5,10 @@
 # TODO(darcey): implement classifier learning also
 
 import os
+import time
 import math
 import torch
-from configuration import LearningRateStrategy
+from configuration import LearningRateStrategy, ClipGrad
 
 class Trainer():
 
@@ -20,6 +21,9 @@ class Trainer():
         self.lr_config = config.train.lr
         self.lr_config.d_model = config.arch.d_model
         self.lr = self.get_initial_learning_rate()
+        self.clip_grad = config.train.clip_grad
+        self.clip_grad_max = config.train.clip_grad_max
+        self.clip_grad_scale = config.train.clip_grad_scale
         self.optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         self.max_epochs = config.train.max_epochs
@@ -49,9 +53,15 @@ class Trainer():
 
     def train(self, train, dev):
         # check what dev perplexity is before starting
+        ppl_start = time.time()
         dev_ppl = self.perplexity(dev)
         self.dev_ppls.append(dev_ppl)
-        print(f"EPOCH {self.num_epochs:{len(str(self.max_epochs))}}\tDEV PPL: {dev_ppl}")
+        ppl_end = time.time()
+        ppl_time = ppl_end - ppl_start
+        print("-"*80 + "\n")
+        print(f"EPOCH {self.num_epochs:{len(str(self.max_epochs))}}")
+        print(f"Dev perplexity:\t{dev_ppl} (computation took {ppl_time:.4f} seconds)")
+        print()
 
         # save initial weights, why not
         self.maybe_save_checkpoint()
@@ -65,6 +75,7 @@ class Trainer():
                 break
 
             # train for one epoch
+            epoch_start = time.time()
             for step in range(self.epoch_size):
                 self.num_steps += 1
 
@@ -84,12 +95,22 @@ class Trainer():
 
                 # adjust learning rate
                 self.adjust_learning_rate_step()
+            epoch_end = time.time()
+            epoch_time = epoch_end - epoch_start
 
             # evaluate dev perplexity
             # TODO(darcey): evaluate dev BLEU
+            ppl_start = time.time()
             dev_ppl = self.perplexity(dev)
             self.dev_ppls.append(dev_ppl)
-            print(f"EPOCH {self.num_epochs:{len(str(self.max_epochs))}}\tDEV PPL: {dev_ppl}")
+            ppl_end = time.time()
+            ppl_time = ppl_end - ppl_start
+            print("-"*80 + "\n")
+            print(f"EPOCH {self.num_epochs:{len(str(self.max_epochs))}}")
+            print(f"Training time:\t{epoch_time:.4f} seconds")
+            print(f"Learning rate:\t{self.lr}")
+            print(f"Dev perplexity:\t{dev_ppl} (computation took {ppl_time:.4f} seconds)")
+            print()
 
             # save checkpoint as needed
             self.maybe_save_checkpoint()
@@ -99,12 +120,19 @@ class Trainer():
 
         # save the final model state
         self.save_final_checkpoint()
+        print("-"*80 + "\n")
 
     def train_one_step(self, src, tgt_in, tgt_out):
         self.optimizer.zero_grad()
         log_probs = self.model(src, tgt_in)
         loss = self.loss(log_probs, tgt_out)
         loss.backward()
+
+        if self.clip_grad == ClipGrad.MAX:
+            torch.nn.utils.clip_grad_value_(self.model.parameters(), clip_value=self.clip_grad_max)
+        elif self.clip_grad == ClipGrad.NORM:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip_grad_scale)
+
         self.optimizer.step()
 
     def perplexity(self, data):
