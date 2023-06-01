@@ -1,3 +1,4 @@
+# TODO(darcey): investigate how the state dict saves stuff; it looks like it saves the input and output embeddings separately even though they're tied?
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
 # TODO(darcey): consider switching to Brian's clever strategy for src/tgt masking
 
@@ -218,6 +219,7 @@ class MultiHeadAttention(torch.nn.Module):
         ret = torch.matmul(probs, v)
 
         # reshape back
+        ret = ret.permute((0,2,1,3))
         ret = ret.reshape(batch, seq1, self.num_heads*self.v_dim)
 
         # project back
@@ -483,7 +485,7 @@ class TransformerTwoSeq(torch.nn.Module):
             tgt_embed    = self.input(tgt)
             tgt_input    = self.dropout(tgt_embed)
             tgt_output   = self.decoder(tgt_input, tgt_pad_mask, src_output, src_pad_mask)
-            tgt_probs  = self.output(tgt_output)
+            tgt_probs    = self.output(tgt_output)
             return tgt_probs[:,-1,:]
 
         return run_decoder_for_one_step

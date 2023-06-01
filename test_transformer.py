@@ -1,4 +1,6 @@
 # TODO(darcey): write tests which confirm that the model has all the parameters it's supposed to
+# TODO(darcey): write tests which show that when you save the state dict and then reload it it works the same way
+# TODO(darcey): write tests which show that when you save the state dict, then reload it, then do the same training step, the resulting parameters are the same
 # TODO(darcey): factor the tests so that mocks exist somewhere centralized instead of being created inside each test (and copied over to test_transformer_gpu sometimes also)
 
 import torch
@@ -586,6 +588,26 @@ class TestTransformer(unittest.TestCase):
         out1 = t(y1)
         out2 = t(y2)
         self.assertTrue(torch.equal(out1, out2))
+
+    def testLaterTimestepsDoNotAffectEarlierOnes(self):
+        self.config.train.dropout = 0.0
+        self.config.train.ff_dropout = 0.0
+        self.config.train.att_dropout = 0.0
+
+        x = torch.randint(low=1,high=30,size=(5,10))
+        y = torch.randint(low=1,high=30,size=(5,20))
+
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=False, num_dec_layers=6, masked_self_att_dec=True, output_probs=True, vocab_size=30, pad_idx=0, tgt_support_mask=None)
+        t.train()
+        out_first = t(x, y[:,0].unsqueeze(-1))
+        out_full = t(x, y)
+        torch.testing.assert_close(out_first, out_full[:,0,:].unsqueeze(1), atol=0.00001, rtol=0)
+
+        t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=True, vocab_size=30, pad_idx=0, support_mask=None)
+        t.train()
+        out_first = t(y[:,0].unsqueeze(-1))
+        out_full = t(y)
+        torch.testing.assert_close(out_first, out_full[:,0,:].unsqueeze(1), atol=0.00001, rtol=0)
 
     def testTwoSeqAutoregressiveOneStepFn(self):
         class MockCache:
