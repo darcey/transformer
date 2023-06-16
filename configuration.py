@@ -47,6 +47,7 @@ class ClipGrad(Enum):
 
 class DecodingMethod(Enum):
     SAMPLING = "Sampling"
+    BEAM_SEARCH = "Beam_Search"
 
 class SamplingMethod(Enum):
     ANCESTRAL   = "Ancestral"

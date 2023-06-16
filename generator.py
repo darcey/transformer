@@ -1,29 +1,28 @@
-# TODO(darcey): copy beam search code over from Toan's code
+# TODO(darcey): implement temperature for sampling
+# TODO(darcey): implement various length rewards for beam search
 # TODO(darcey): implement MBR
 # TODO(darcey): implement cluster search
 # TODO(darcey): implement exact search
 # TODO(darcey): implement exact cluster search
-# TODO(darcey): implement temperature for sampling
 # TODO(darcey): implement diverse beam search
 # TODO(darcey): implement repetition constraints
 
+# TODO(darcey): when returning final samples and beam search results should I trim extra padding?
 # TODO(darcey): learn where torch uses a copy vs. view, and make sure I am using clone() in all/only the right places
-# TODO(darcey): think about whether there's a way to decrease space usage during truncated sampling (probably not, since top-p is ragged)
 # TODO(darcey): consider whether to make top-p, top-k, and temperature usable at the same time
-# TODO(darcey): consider whether beam search and sampling should multiply in the EOS probability if they reach the max length
-# TODO(darcey): also should max length include BOS?
 # TODO(darcey): in sampling outer loop, should I move samples off GPU?
 # TODO(darcey): consider changing generate() to be a yield-style function, in order to accommodate extremely large numbers of samples where we need to print midway through
 # TODO(darcey): come up with a better return type for the generator -- an object? a dict?
+# TODO(darcey): update generation to allow transformer to handle things larger than context window?
 
+import warnings
 import copy
 import torch
-from torch.nn.utils.rnn import pad_sequence
 from configuration import DecodingMethod, SamplingMethod
+from beam_manager import BeamManager
 from cache import BeamCache
 
 class Generator:
-
 
     def __init__(self, model, config, device, pad_idx, bos_idx, eos_idx):
         self.pad = pad_idx
@@ -32,24 +31,52 @@ class Generator:
 
         self.device = device
         self.config = config.gen
+        self.window = config.arch.context_window_length
         self.model = model
 
-    # src: [batch_size, length]
+    # src: [batch_size, src_len]
+    # return:
+    #   tgt_final: [batch_size, tgt_len]
+    #   tgt_all:   [batch_size, beam_size, tgt_len]
+    #   probs_all: [batch_size, beam_size]
     def generate(self, src):
-        batch_size = src.size(0)
-
-        if self.config.use_rel_max_len:
-            max_lengths = torch.sum(src != self.pad, dim=-1) + self.config.rel_max_len
-        else:
-            max_lengths = torch.tensor([self.config.abs_max_len] * batch_size, device=self.device)
-        max_possible_length = max_lengths.max().item()
+        max_lenths, max_possible_length = self.get_max_lengths(src)
 
         cache = BeamCache()
         autoregressive_fn = self.model.get_autoregressive_one_step_fn(src, cache)
         match self.config.decoding_method:
             case DecodingMethod.SAMPLING:
                 return self.sample_outer_loop(src.size(0), max_lengths, max_possible_length, autoregressive_fn, cache)
+            case DecodingMethod.BEAM_SEARCH:
+                return self.beam_search(src.size(0), self.config.num_beams_or_samples, max_lengths, max_possible_length, autoregressive_fn, cache)
 
+    # src:         [batch_size, src_len]
+    # max_lengths: [batch_size]
+    def get_max_lengths(self, src):
+        batch_size = src.size(0)
+
+        if self.config.use_rel_max_len:
+            max_lengths = torch.sum(src != self.pad, dim=-1) + self.config.rel_max_len
+        else:
+            max_lengths = torch.tensor([self.config.abs_max_len] * batch_size, device=self.device)
+
+        min_max_length = max_lengths.min().item()
+        if min_max_length < 1:
+            raise Exception("Max length should be at least 1 to allow for BOS")
+
+        max_possible_length = max_lengths.max().item()
+        if max_possible_length > self.window:
+            warnings.warn("Warning: some sentences have max length higher than the context window length. Reducing max length to context window length.")
+            max_lengths = torch.minimum(max_lengths, torch.tensor(self.window))
+            max_possible_length = self.window
+
+        return max_lengths, max_possible_length
+
+    # max_lengths: [batch_size]
+    # return:
+    #   final_samples: [batch_size, tgt_len]
+    #   all_samples:   [batch_size, beam_size, tgt_len]
+    #   all_probs:     [batch_size, beam_size]
     def sample_outer_loop(self, batch_size, max_lengths, max_possible_length, autoregressive_fn, cache):
         max_sents     = self.config.max_parallel_sentences
         num_samples   = self.config.num_beams_or_samples
@@ -84,58 +111,42 @@ class Generator:
     # ret_symbols: [batch_size, num_samples, tgt_len]
     # ret_probs:   [batch_size, num_samples]
     def sample(self, batch_size, num_samples, max_lengths, max_possible_length, autoregressive_fn, cache):
-        size = batch_size * num_samples
-        cumulative_symbols = torch.tensor([self.bos] * size, device=self.device).unsqueeze(1) # [size, tgt_seq=1]
-        cumulative_probs   = torch.zeros(size=(size, 1), device=self.device)                  # [size, dummy dimension for V]
-        max_lengths        = max_lengths.unsqueeze(1).expand(-1, num_samples).reshape(size)   # [size]
-        cache.expand_to_num_samples(num_samples)
+        beam_manager = BeamManager(batch_size=batch_size,
+                                   beam_size=num_samples,
+                                   vocab_size=self.model.vocab_size,
+                                   max_lengths=max_lengths,
+                                   max_possible_length=max_possible_length,
+                                   pad=self.pad,
+                                   bos=self.bos,
+                                   eos=self.eos,
+                                   autoregressive_fn=autoregressive_fn,
+                                   cache=cache,
+                                   device=self.device)
 
-        ret_symbols = [None] * size
-        ret_probs   = [None] * size
-        orig_idxs   = torch.arange(size, device=self.device)
-
-        # at beginning of timestep n, n tokens have been generated so far (not incl. BOS)
-        for time_step in range(0, max_possible_length + 1):
-            # when a sample is finished, can stop doing computation on it
-            reached_max_length = (max_lengths <= time_step) + (time_step == max_possible_length) # [size]
-            reached_eos        = (cumulative_symbols[:, -1] == self.eos)                           # [size]
-            finished_sents     = reached_max_length + reached_eos                                  # [size]
-
-            if finished_sents.any():
-                for j in range(finished_sents.size(0)):
-                    if finished_sents[j]:
-                        ret_symbols[orig_idxs[j]] = cumulative_symbols[j].clone()
-                        ret_probs[orig_idxs[j]]   = cumulative_probs[j].clone()
-
-                # size = size - number of finished sents
-                cumulative_symbols = cumulative_symbols[~finished_sents] # [size, tgt_seq]
-                cumulative_probs   = cumulative_probs[~finished_sents]   # [size, 1]
-                max_lengths        = max_lengths[~finished_sents]        # [size]
-                orig_idxs          = orig_idxs[~finished_sents]          # [size]
-                cache.trim_finished_sents(finished_sents)
-
-            if finished_sents.all():
+        while True:
+            beam_manager.prune_finished()
+            if beam_manager.all_done():
                 break
 
-            # compute next token probabilities
-            next_token_probs = autoregressive_fn(cumulative_symbols, cache)    # [size, V]
-            all_choices_cumulative_probs = cumulative_probs + next_token_probs # [size, 1] + [size, V] = [size, V]
+            # get relevant info for choosing the next timestep's tokens
+            next_token_probs, _ = beam_manager.compute_next_token_probs() # [batch, num_samples, V]
 
-            # convert from log probs to probs; do any truncation etc.
-            next_token_probs = torch.exp(next_token_probs)
-            next_token_probs = self.adjust_or_truncate_probs(next_token_probs)
+            # adjust probs as needed and sample next token
+            next_token_probs = torch.exp(next_token_probs)                         # [batch, num_samples, V]
+            next_token_probs = self.truncate_probs(next_token_probs)               # [batch, num_samples, V]
+            curr_size = next_token_probs.size(0)
+            next_token_probs = next_token_probs.reshape(curr_size*num_samples, -1) # [batch*num_samples, 1]
+            chosen_idxs = torch.multinomial(next_token_probs, 1, replacement=True) # [batch*num_samples, 1]
+            chosen_idxs = chosen_idxs.reshape(curr_size, num_samples)              # [batch, num_samples]
 
-            # sample next token
-            chosen_idxs = torch.multinomial(next_token_probs, 1, replacement=True)         # [size, 1]
-            cumulative_probs = torch.gather(all_choices_cumulative_probs, -1, chosen_idxs) # [size, 1]
-            cumulative_symbols = torch.cat((cumulative_symbols, chosen_idxs), -1)          # [size, tgt_len]
+            # tell the beam manager which idxs we're keeping
+            beam_manager.select_idxs_independent(chosen_idxs)
 
-        # get return values into proper format
-        ret_symbols = pad_sequence(ret_symbols, batch_first=True, padding_value=self.pad).reshape(batch_size, num_samples, -1)
-        ret_probs   = torch.stack(ret_probs).reshape(batch_size, num_samples)
-        return ret_symbols, ret_probs
+        return beam_manager.get_final()
 
-    def adjust_or_truncate_probs(self, probs):
+    # probs: [batch, num_samples, V]
+    # ret:   [batch, num_samples, V]
+    def truncate_probs(self, probs):
         match self.config.sampling_method:
             case SamplingMethod.ANCESTRAL:
                 return probs
@@ -150,9 +161,74 @@ class Generator:
                 vals, idxs = torch.sort(probs, dim=-1, descending=True)
                 cum_vals = torch.cumsum(vals, dim=-1)
                 to_remove = cum_vals > self.config.sampling_p
-                to_remove[:, 1:] = to_remove[:,:-1].clone()
-                to_remove[:, 0] = 0.0
+                to_remove[:,:,1:] = to_remove[:,:,:-1].clone()
+                to_remove[:,:,0] = False
                 vals[to_remove] = 0.0
                 trunc_probs = torch.empty_like(probs)
                 trunc_probs.scatter_(dim=-1, index=idxs, src=vals)
                 return trunc_probs
+
+    # max_lengths: [batch_size]
+    # ret_symbols: [batch_size, beam_size, tgt_len]
+    # ret_probs:   [batch_size, beam_size]
+    def beam_search(self, batch_size, beam_size, max_lengths, max_possible_length, autoregressive_fn, cache):
+        beam_manager = BeamManager(batch_size=batch_size,
+                                   beam_size=beam_size,
+                                   vocab_size=self.model.vocab_size,
+                                   max_lengths=max_lengths,
+                                   max_possible_length=max_possible_length,
+                                   pad=self.pad,
+                                   bos=self.bos,
+                                   eos=self.eos,
+                                   autoregressive_fn=autoregressive_fn,
+                                   cache=cache,
+                                   device=self.device)
+
+        # beam should not contain duplicates, so at the beginning,
+        # start with just one BOS in the beam, and the rest of the
+        # beam should be filled with dummy sentences that are just PAD
+        start_symbols = torch.full((batch_size, beam_size, 1), self.pad, device=self.device)
+        start_symbols[:,0,:] = self.bos
+        start_probs = torch.full((batch_size, beam_size), float("-inf"), device=self.device)
+        start_probs[:,0] = 0.0
+        beam_manager.manually_initialize(start_symbols, start_probs)
+
+        # in each iteration, get the probabilities of all choices
+        # from the beam manager, then choose the top k
+        time_step = 0
+        while True:
+            # tell the beam manager to prune anything that ends with EOS
+            # since we don't have to do computation on it anymore;
+            # when everything is pruned, can return
+            beam_manager.prune_finished()
+            if beam_manager.all_done():
+                break
+
+            # tell the beam manager to extend the beams by one token,
+            # and return the probabilities of all the possible new beams
+            _, all_choices_cumulative_probs = beam_manager.compute_next_token_probs() # [batch, beam, vocab]
+
+            # modify the beams' probs as needed
+            if time_step == 0 and not self.config.allow_empty_string:
+                all_choices_cumulative_probs[:,:,self.eos] = float("-inf")
+
+            # reshape, choose top k
+            batch_size = all_choices_cumulative_probs.size(0)                                       # (may have changed if sents were pruned)
+            all_choices_cumulative_probs = all_choices_cumulative_probs.reshape(batch_size, -1)     # [batch, beam*V]
+            chosen_probs, chosen_idxs = torch.topk(all_choices_cumulative_probs, beam_size, dim=-1) # ([batch, beam], [batch, beam])
+
+            # tell the beam manager which of the possible beams to keep
+            # note that each index in chosen_idxs is a value (beam_item*V + vocab_item)
+            # indicating that the extended beam item to keep is [batch_idx, beam_item, vocab_item]
+            beam_manager.select_idxs_dependent(chosen_idxs)
+
+            time_step += 1
+
+        symbols, probs = beam_manager.get_final()
+        # There should only be -infs in the beam if the beam size k
+        # was larger than the number of sentneces n in the language.
+        # If so the content of these -infs will just be random noise.
+        # Set them to PAD for increased clarity.
+        neg_inf = (probs == float("-inf"))
+        symbols[neg_inf] = self.pad
+        return symbols[:,0,:].clone(), symbols, probs

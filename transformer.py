@@ -477,9 +477,9 @@ class TransformerTwoSeq(torch.nn.Module):
         cache.cache_src(src_output, src_pad_mask)
 
         # tgt: [batch, tgt_seq]
-        # ret: [batch, tgt_seq, vocab_size]
-        def run_decoder_for_one_step(tgt, cache):
-            src_output, src_pad_mask = cache.get_src()
+        # ret: [batch, vocab_size]
+        def run_decoder_for_one_step(tgt, cache, finished_mask):
+            src_output, src_pad_mask = cache.get_src(finished_mask)
 
             tgt_pad_mask = get_pad_mask(tgt, self.pad_idx)
             tgt_embed    = self.input(tgt)
@@ -527,7 +527,7 @@ class TransformerOneSeq(torch.nn.Module):
             raise Exception("Can only construct one step function for model that outputs probabilities.")
 
         # seq: [batch, seq]
-        # ret: [batch, seq, vocab_size]
+        # ret: [batch, vocab_size]
         def run_model_for_one_step(seq):
             pad_mask = get_pad_mask(seq, self.pad_idx)
 

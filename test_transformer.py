@@ -614,7 +614,7 @@ class TestTransformer(unittest.TestCase):
             def cache_src(self, src_output, src_pad_mask):
                 self.src_output = src_output
                 self.src_pad_mask = src_pad_mask
-            def get_src(self):
+            def get_src(self, mask):
                 return self.src_output, self.src_pad_mask
 
         self.config.train.dropout = 0.0
@@ -627,8 +627,9 @@ class TestTransformer(unittest.TestCase):
         t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=False, num_dec_layers=6, masked_self_att_dec=True, output_probs=True, vocab_size=30, pad_idx=0, tgt_support_mask=None)
         out1 = t(x, y)
         cache = MockCache()
+        mask = None
         auto_fn = t.get_autoregressive_one_step_fn(x, cache)
-        out2 = auto_fn(y, cache)
+        out2 = auto_fn(y, cache, mask)
         self.assertTrue(torch.equal(out1[:,-1,:], out2))
 
     def testOneSeqAutoregressiveOneStepFn(self):

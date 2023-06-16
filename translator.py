@@ -1,6 +1,3 @@
-# change how dataset is initialized
-
-
 import torch
 
 class Translator:

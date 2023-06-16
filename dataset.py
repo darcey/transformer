@@ -1,4 +1,5 @@
 # TODO(darcey): is sort_by_tgt_only actually necessary?
+# TODO(darcey): somewhere (maybe here?) the code should enforce that data is less than context window length
 # TODO(darcey): improve code sharing between dataset classes
 # TODO(darcey): think about adding code for Toan and Kenton's data augmentation strategy that glues multiple sentences together before training
 # TODO(darcey): write dataset classes for classification tasks
