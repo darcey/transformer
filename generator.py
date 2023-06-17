@@ -40,7 +40,7 @@ class Generator:
     #   tgt_all:   [batch_size, beam_size, tgt_len]
     #   probs_all: [batch_size, beam_size]
     def generate(self, src):
-        max_lenths, max_possible_length = self.get_max_lengths(src)
+        max_lengths, max_possible_length = self.get_max_lengths(src)
 
         cache = BeamCache()
         autoregressive_fn = self.model.get_autoregressive_one_step_fn(src, cache)
