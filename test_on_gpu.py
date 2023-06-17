@@ -95,8 +95,8 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         config = read_config("configuration.toml")
         model = MockModelDoesNothing()
 
-        self.gen_cpu = Generator(model, config, "cpu", self.pad_idx, self.bos_idx, self.eos_idx)
-        self.gen_gpu = Generator(model, config, "cuda:0", self.pad_idx, self.bos_idx, self.eos_idx)
+        self.gen_cpu = Generator(model, config, "cpu", 5, self.pad_idx, self.bos_idx, self.eos_idx)
+        self.gen_gpu = Generator(model, config, "cuda:0", 5, self.pad_idx, self.bos_idx, self.eos_idx)
         self.cache = MockCacheDoesNothing()
 
     # This is the same test function as in test_generator;
@@ -114,7 +114,6 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
                        (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * b_dist
             return torch.log(all_dist)
 
-        self.gen_gpu.model.vocab_size = 5
         max_lengths = torch.tensor([40]*1000, device="cuda:0")
         symbols_out, probs_out = self.gen_gpu.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
@@ -180,8 +179,8 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         def auto_fn_gpu(symbols, cache, mask):
             return dist_gpu[0:symbols.size(0)]
 
-        self.gen_cpu.model.vocab_size = 50
-        self.gen_gpu.model.vocab_size = 50
+        self.gen_cpu.vocab_size = 50
+        self.gen_gpu.vocab_size = 50
         max_lengths_cpu = torch.tensor([40]*5)
         max_lengths_gpu = torch.tensor([40]*5).cuda()
         cache = MockCacheDoesNothing()

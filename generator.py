@@ -24,7 +24,8 @@ from cache import BeamCache
 
 class Generator:
 
-    def __init__(self, model, config, device, pad_idx, bos_idx, eos_idx):
+    def __init__(self, model, config, device, vocab_size, pad_idx, bos_idx, eos_idx):
+        self.vocab_size = vocab_size
         self.pad = pad_idx
         self.bos = bos_idx
         self.eos = eos_idx
@@ -113,7 +114,7 @@ class Generator:
     def sample(self, batch_size, num_samples, max_lengths, max_possible_length, autoregressive_fn, cache):
         beam_manager = BeamManager(batch_size=batch_size,
                                    beam_size=num_samples,
-                                   vocab_size=self.model.vocab_size,
+                                   vocab_size=self.vocab_size,
                                    max_lengths=max_lengths,
                                    max_possible_length=max_possible_length,
                                    pad=self.pad,
@@ -174,7 +175,7 @@ class Generator:
     def beam_search(self, batch_size, beam_size, max_lengths, max_possible_length, autoregressive_fn, cache):
         beam_manager = BeamManager(batch_size=batch_size,
                                    beam_size=beam_size,
-                                   vocab_size=self.model.vocab_size,
+                                   vocab_size=self.vocab_size,
                                    max_lengths=max_lengths,
                                    max_possible_length=max_possible_length,
                                    pad=self.pad,

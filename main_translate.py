@@ -75,7 +75,7 @@ if __name__ == '__main__':
     model.to(device)
     
     # make generator and translator
-    generator = Generator(model, config, device, PAD, BOS, EOS)
+    generator = Generator(model, config, device, len(vocab), PAD, BOS, EOS)
     translator = Translator(model, generator, device)
 
     # translate the data

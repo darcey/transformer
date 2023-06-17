@@ -31,7 +31,7 @@ class TestGenerate(unittest.TestCase):
         config = read_config("configuration.toml")
         model = MockModelDoesNothing()
 
-        self.gen = Generator(model, config, device, self.pad_idx, self.bos_idx, self.eos_idx)
+        self.gen = Generator(model, config, device, 5, self.pad_idx, self.bos_idx, self.eos_idx)
 
     def testMaxLengthsRelative(self):
         self.gen.config.use_rel_max_len = True
@@ -87,7 +87,7 @@ class TestSampling(unittest.TestCase):
         config = read_config("configuration.toml")
         model = MockModelDoesNothing()
 
-        self.gen = Generator(model, config, device, self.pad_idx, self.bos_idx, self.eos_idx)
+        self.gen = Generator(model, config, device, 5, self.pad_idx, self.bos_idx, self.eos_idx)
         self.cache = MockCacheDoesNothing()
 
     def testSampleOuterLoopOneIter(self):
@@ -167,7 +167,6 @@ class TestSampling(unittest.TestCase):
                        (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * b_dist
             return torch.log(all_dist)
 
-        self.gen.model.vocab_size = 5
         max_lengths = torch.tensor([40]*1000)
         symbols_out, probs_out = self.gen.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
@@ -191,7 +190,6 @@ class TestSampling(unittest.TestCase):
                        (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * a_dist
             return torch.log(all_dist)
 
-        self.gen.model.vocab_size = 5
         max_lengths = torch.tensor([40]*1000)
         symbols_out, probs_out = self.gen.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
@@ -255,7 +253,7 @@ class TestBeamSearch(unittest.TestCase):
         config = read_config("configuration.toml")
         model = MockModelDoesNothing()
 
-        self.gen = Generator(model, config, device, self.pad_idx, self.bos_idx, self.eos_idx)
+        self.gen = Generator(model, config, device, 5, self.pad_idx, self.bos_idx, self.eos_idx)
         self.cache = MockCacheDoesNothing()
 
     def testBeamSearch(self):
@@ -269,7 +267,6 @@ class TestBeamSearch(unittest.TestCase):
                        (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * dist3
             return torch.log(all_dist)
 
-        self.gen.model.vocab_size = 5
         max_lengths = torch.tensor([40]*2)
         symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
@@ -305,7 +302,6 @@ class TestBeamSearch(unittest.TestCase):
                        (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * dist3
             return torch.log(all_dist)
 
-        self.gen.model.vocab_size = 5
         max_lengths = torch.tensor([40]*2)
         symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
@@ -339,7 +335,6 @@ class TestBeamSearch(unittest.TestCase):
                        (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * dist3
             return torch.log(all_dist)
 
-        self.gen.model.vocab_size = 5
         max_lengths = torch.tensor([40]*2)
 
         self.gen.config.allow_empty_string = True
