@@ -1,3 +1,4 @@
+# TODO(darcey): make it possible for the autoregressive one step function to handle input sequences of length > 1
 # TODO(darcey): investigate how the state dict saves stuff; it looks like it saves the input and output embeddings separately even though they're tied?
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
 # TODO(darcey): consider switching to Brian's clever strategy for src/tgt masking
@@ -190,25 +191,37 @@ class MultiHeadAttention(torch.nn.Module):
 
         self.dropout = torch.nn.Dropout(p=dropout)
 
+    # These are for precomputing projections when using
+    # cached cross-attention.
+    def project_k(self, k):
+        return self.proj_k(k)
+    def project_v(self, v):
+        return self.proj_v(v)
+
     # q:    [batch, seq1, d_input]
     # k:    [batch, seq2, d_input]
     # v:    [batch, seq2, d_input]
     # mask: [batch, seq1, seq2] or [batch, 1, seq2]
     # ret:  [batch, seq1, d_input]
-    def forward(self, q, k, v, mask):
-        batch = q.size(0)
-        seq1 = q.size(1)
-        seq2 = k.size(1)
+    def forward(self, q, k=None, v=None, mask=None, cache=None):
+        # Operates in three modes:
+        #   - no caching (used during normal forward computation)
+        #   - the k, v projections are completely cached and just need to be looked up (used for cross-attention)
+        #   - the k, v projections are partly cached, partly built up incrementally (used for self-attention)
+        if (k == None or v == None) and cache == None:
+            raise ValueError("MultiHeadAttention: bad combination of arguments")
 
-        # project to heads
+        batch = q.size(0)
+
+        # project to heads (or retrieve cached projection)
         q = self.proj_q(q)
-        k = self.proj_k(k)
-        v = self.proj_v(v)
+        k = cache.get_k(id(self)) if cache else self.proj_k(k)
+        v = cache.get_v(id(self)) if cache else self.proj_v(v)
 
         # reshape to heads, permute for matrix multiplication
-        q = q.reshape(batch, seq1, self.num_heads, self.qk_dim).permute((0,2,1,3))
-        k = k.reshape(batch, seq2, self.num_heads, self.qk_dim).permute((0,2,3,1))
-        v = v.reshape(batch, seq2, self.num_heads, self.v_dim).permute((0,2,1,3))
+        q = q.reshape(batch, -1, self.num_heads, self.qk_dim).permute((0,2,1,3))
+        k = k.reshape(batch, -1, self.num_heads, self.qk_dim).permute((0,2,3,1))
+        v = v.reshape(batch, -1, self.num_heads, self.v_dim).permute((0,2,1,3))
         mask = mask.unsqueeze(1)
 
         # do multihead attention
@@ -220,7 +233,7 @@ class MultiHeadAttention(torch.nn.Module):
 
         # reshape back
         ret = ret.permute((0,2,1,3))
-        ret = ret.reshape(batch, seq1, self.num_heads*self.v_dim)
+        ret = ret.reshape(batch, -1, self.num_heads*self.v_dim)
 
         # project back
         ret = self.proj_out(ret)
@@ -274,14 +287,20 @@ class Layer(torch.nn.Module):
     # this_seq:  [batch, this_seq, d_model]
     # this_mask: [batch, 1, this_seq] or [batch, this_seq, this_seq]
     # ret:       [batch, this_seq, d_model]
-    def forward(self, this_seq, this_mask, prev_seq=None, prev_mask=None):
-        if ((prev_seq == None) != (not self.take_two_seqs)) or\
-           ((prev_seq == None) != (prev_mask == None)):
-            raise ValueError("Layer: bad combination of arguments")
+    def forward(self, this_seq, this_mask, prev_seq=None, prev_mask=None, cache=None):
+        if self.take_two_seqs:
+            if (prev_mask == None) or (prev_seq == None and cache == None):
+                raise ValueError("Layer: bad combination of arguments")
+        else:
+            if (prev_mask != None) or (prev_seq != None):
+                raise ValueError("Layer: bad combination of arguments")
 
         self_att_func = lambda this: self.self_attention(this, this, this, this_mask)
         if self.take_two_seqs:
-            cross_att_func = lambda this: self.cross_attention(this, prev_seq, prev_seq, prev_mask)
+            if cache:
+                cross_att_func = lambda this: self.cross_attention(this, mask=prev_mask, cache=cache)
+            else:
+                cross_att_func = lambda this: self.cross_attention(this, prev_seq, prev_seq, prev_mask)
         feed_forward_func = lambda this: self.feed_forward(this)
 
         ret = this_seq
@@ -313,7 +332,7 @@ class EncoderOrDecoder(torch.nn.Module):
     # this_seq:  [batch, this_seq, d_model]
     # this_mask: [batch, 1, this_seq]
     # ret:       [batch, this_seq, d_model]
-    def forward(self, this_seq, this_mask, prev_seq=None, prev_mask=None):
+    def forward(self, this_seq, this_mask, prev_seq=None, prev_mask=None, cache=None):
         if self.masked_self_att:
             l = this_seq.size(1)
             causal_mask = torch.triu(torch.full((l, l), float('-inf')), diagonal=1)
@@ -322,7 +341,7 @@ class EncoderOrDecoder(torch.nn.Module):
 
         ret = this_seq
         for layer in self.layers:
-            ret = layer(ret, this_mask, prev_seq, prev_mask)
+            ret = layer(ret, this_mask, prev_seq, prev_mask, cache)
         ret = self.norm(ret) if self.pre_norm else ret
         return ret
 
@@ -474,17 +493,21 @@ class TransformerTwoSeq(torch.nn.Module):
         src_input    = self.dropout(src_embed)
         src_output   = self.encoder(src_input, src_pad_mask)
 
-        cache.cache_src(src_output, src_pad_mask)
+        for layer in self.decoder.layers:
+            cross_att = layer.cross_attention
+            cache.cache_src_k(id(cross_att), cross_att.project_k(src_output))
+            cache.cache_src_v(id(cross_att), cross_att.project_v(src_output))
+        cache.cache_src_mask(src_pad_mask)
 
         # tgt: [batch, tgt_seq]
         # ret: [batch, vocab_size]
-        def run_decoder_for_one_step(tgt, cache, finished_mask):
-            src_output, src_pad_mask = cache.get_src(finished_mask)
+        def run_decoder_for_one_step(tgt, cache):
+            src_pad_mask = cache.get_src_mask()
 
             tgt_pad_mask = get_pad_mask(tgt, self.pad_idx)
             tgt_embed    = self.input(tgt)
             tgt_input    = self.dropout(tgt_embed)
-            tgt_output   = self.decoder(tgt_input, tgt_pad_mask, src_output, src_pad_mask)
+            tgt_output   = self.decoder(tgt_input, tgt_pad_mask, prev_mask=src_pad_mask, cache=cache)
             tgt_probs    = self.output(tgt_output)
             return tgt_probs[:,-1,:]
 

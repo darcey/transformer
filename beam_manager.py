@@ -112,10 +112,12 @@ class BeamManager:
             next_token_probs = torch.full((self.curr_size*self.beam_size, self.vocab_size),
                                           float("-inf"), device=self.device)                             # [batch*beam, vocab]
             active_symbols = self.symbols.reshape(-1, self.seq_len)[~finished_mask]                      # [batch*beam, seq_len]
-            next_token_probs[~finished_mask] = self.auto_fn(active_symbols, self.cache, finished_mask)
+            self.cache.register_finished_mask(finished_mask)
+            next_token_probs[~finished_mask] = self.auto_fn(active_symbols, self.cache)
             next_token_probs[finished_mask,self.pad] = 0.0
         else:
-            next_token_probs = self.auto_fn(self.symbols.reshape(-1, self.seq_len), self.cache, finished_mask) # [batch*beam, vocab]
+            self.cache.register_finished_mask(None)
+            next_token_probs = self.auto_fn(self.symbols.reshape(-1, self.seq_len), self.cache) # [batch*beam, vocab]
 
         self.next_token_probs = next_token_probs.reshape(self.curr_size, self.beam_size, self.vocab_size) # [batch, beam, vocab]
         self.all_choices_probs = self.probs.unsqueeze(-1) + self.next_token_probs                         # [batch, beam, vocab]

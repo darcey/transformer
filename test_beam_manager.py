@@ -4,10 +4,12 @@ from beam_manager import *
 
 
 
-def mock_auto_fn_does_nothing(symbols, cache, mask):
+def mock_auto_fn_does_nothing(symbols, cache):
     return 5
 
 class MockCacheDoesNothing:
+    def register_finished_mask(self, mask):
+        self.mask = mask
     def expand_to_beam_size(self, beam_size):
         return
     def trim_finished_sents(self, finished):
@@ -241,9 +243,9 @@ class TestBeamManager(unittest.TestCase):
                                  [1,3,3,4],
                                  [1,3,3,4]]])
 
-        def mock_auto_fn(active_symbols, cache, mask):
+        def mock_auto_fn(active_symbols, cache):
             self.assertTrue(torch.equal(active_symbols, symbols.reshape(4*3,4)))
-            self.assertTrue(torch.equal(mask, torch.tensor([False]*4*3)))
+            self.assertTrue(cache.mask is None)
 
             batch_beam = active_symbols.size(0)
             probs3 = torch.tensor([[0.0, 0.1, 0.2, 0.3, 0.4]]).expand(batch_beam, -1)
@@ -317,9 +319,9 @@ class TestBeamManager(unittest.TestCase):
                                        [1,3,3,4]])
         mask_correct = torch.tensor([True, True, False, False, True, False, True, True, False, False, False, True])
     
-        def mock_auto_fn(active_symbols, cache, mask):
+        def mock_auto_fn(active_symbols, cache):
             self.assertTrue(torch.equal(active_symbols, active_correct))
-            self.assertTrue(torch.equal(mask, mask_correct))
+            self.assertTrue(torch.equal(cache.mask, mask_correct))
 
             batch_beam = active_symbols.size(0)
             probs3 = torch.tensor([[0.0, 0.1, 0.2, 0.3, 0.4]]).expand(batch_beam, -1)

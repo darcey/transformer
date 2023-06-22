@@ -1,3 +1,4 @@
+# TODO(darcey): add more thorough tests of cache use
 # TODO(darcey): write tests which confirm that the model has all the parameters it's supposed to
 # TODO(darcey): write tests which show that when you save the state dict and then reload it it works the same way
 # TODO(darcey): write tests which show that when you save the state dict, then reload it, then do the same training step, the resulting parameters are the same
@@ -7,6 +8,7 @@ import torch
 import torch.testing
 import unittest
 from configuration import *
+from cache import *
 from transformer import *
 
 
@@ -609,14 +611,15 @@ class TestTransformer(unittest.TestCase):
         out_full = t(y)
         torch.testing.assert_close(out_first, out_full[:,0,:].unsqueeze(1), atol=0.00001, rtol=0)
 
-    def testTwoSeqAutoregressiveOneStepFn(self):
-        class MockCache:
-            def cache_src(self, src_output, src_pad_mask):
-                self.src_output = src_output
-                self.src_pad_mask = src_pad_mask
-            def get_src(self, mask):
-                return self.src_output, self.src_pad_mask
 
+
+
+class TestCachedAutoregressiveDecoding(unittest.TestCase):
+
+    def setUp(self):
+        self.config = read_config("configuration.toml")
+
+    def testTwoSeqAutoregressive(self):
         self.config.train.dropout = 0.0
         self.config.train.ff_dropout = 0.0
         self.config.train.att_dropout = 0.0
@@ -625,22 +628,33 @@ class TestTransformer(unittest.TestCase):
         y = torch.randint(low=1,high=30,size=(5,20))
 
         t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=False, num_dec_layers=6, masked_self_att_dec=True, output_probs=True, vocab_size=30, pad_idx=0, tgt_support_mask=None)
-        out1 = t(x, y)
-        cache = MockCache()
-        mask = None
-        auto_fn = t.get_autoregressive_one_step_fn(x, cache)
-        out2 = auto_fn(y, cache, mask)
-        self.assertTrue(torch.equal(out1[:,-1,:], out2))
 
-    def testOneSeqAutoregressiveOneStepFn(self):
+        out1 = t(x, y)
+
+        cache = BeamCache(5,1,10)
+        auto_fn = t.get_autoregressive_one_step_fn(x, cache)
+        out2 = torch.empty(5,0,30)
+        for i in range(1,21):
+            out2_one_symb = auto_fn(y[:,:i], cache).unsqueeze(1)
+            out2 = torch.cat((out2, out2_one_symb), dim=1)
+
+        torch.testing.assert_close(out1, out2, atol=0.00001, rtol=0)
+
+    def testOneSeqAutoregressive(self):
         self.config.train.dropout = 0.0
         self.config.train.ff_dropout = 0.0
         self.config.train.att_dropout = 0.0
 
         y = torch.randint(low=1,high=30,size=(5,20))
 
-        t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=True, vocab_size=1000, pad_idx=0, support_mask=None)
+        t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=True, vocab_size=30, pad_idx=0, support_mask=None)
+
         out1 = t(y)
+
         auto_fn = t.get_autoregressive_one_step_fn()
-        out2 = auto_fn(y)
-        self.assertTrue(torch.equal(out1[:,-1,:], out2))
+        out2 = torch.empty(5,0,30)
+        for i in range(1,21):
+            out2_one_symb = auto_fn(y[:,:i]).unsqueeze(1)
+            out2 = torch.cat((out2, out2_one_symb), dim=1)
+
+        torch.testing.assert_close(out1, out2, atol=0.00001, rtol=0)

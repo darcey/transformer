@@ -1,5 +1,3 @@
-# TODO(darcey): figure out how to suppress warnings during testing
-
 import math
 import torch
 import unittest
@@ -13,6 +11,8 @@ class MockModelDoesNothing:
         return 5
 
 class MockCacheDoesNothing:
+    def register_finished_mask(self, mask):
+        return
     def expand_to_beam_size(self, beam_size):
         return
     def trim_finished_sents(self, finished):
@@ -68,9 +68,12 @@ class TestGenerate(unittest.TestCase):
                             [1,2,0,0,0]])
         max_lengths_correct = torch.tensor([5,5,5])
 
-        max_lengths, max_possible_length = self.gen.get_max_lengths(src)
-        self.assertTrue(torch.equal(max_lengths, max_lengths_correct))
-        self.assertEqual(max_possible_length, 5)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            max_lengths, max_possible_length = self.gen.get_max_lengths(src)
+            self.assertEqual(len(w), 1)
+            self.assertTrue(torch.equal(max_lengths, max_lengths_correct))
+            self.assertEqual(max_possible_length, 5)
 
 
 
@@ -158,7 +161,7 @@ class TestSampling(unittest.TestCase):
 
     def testSampleSimpleDistribution1(self):
         # At beginning, splits off into two possibilities: all as or all bs.
-        def mock_autoregressive_fn(cumul_symbols, cache, mask):
+        def mock_autoregressive_fn(cumul_symbols, cache):
             a_dist   = torch.tensor([0.0, 0.0, 0.5, 0.5, 0.0])
             b_dist   = torch.tensor([0.0, 0.0, 0.5, 0.0, 0.5])
             ab_dist  = torch.tensor([0.0, 0.0, 0.0, 0.5, 0.5])
@@ -182,7 +185,7 @@ class TestSampling(unittest.TestCase):
     def testSampleSimpleDistribution2(self):
         # Generates strings which alternate between as and bs
         # Always starts with an a, ends with a b
-        def mock_autoregressive_fn(cumul_symbols, cache, mask):
+        def mock_autoregressive_fn(cumul_symbols, cache):
             a_dist   = torch.tensor([0.0, 0.0, 0.5, 0.5, 0.0])
             b_dist   = torch.tensor([0.0, 0.0, 0.0, 0.0, 1.0])
             all_dist = (cumul_symbols[:,-1] == 1).unsqueeze(1).type(torch.float) * a_dist + \
@@ -258,7 +261,7 @@ class TestBeamSearch(unittest.TestCase):
 
     def testBeamSearch(self):
         # Generates strings which are either all as or all bs
-        def mock_autoregressive_fn(cumul_symbols, cache, mask):
+        def mock_autoregressive_fn(cumul_symbols, cache):
             dist1    = torch.tensor([0.0, 0.0, 0.0,  0.5,  0.5])
             dist2    = torch.tensor([0.0, 0.0, 0.55, 0.45, 0.0])
             dist3    = torch.tensor([0.0, 0.0, 0.6,  0.0,  0.4])
@@ -293,7 +296,7 @@ class TestBeamSearch(unittest.TestCase):
     # in the language is n < k.
     def testBeamSearchBeamTooBig(self):
         # A distribution that only generates two strings
-        def mock_autoregressive_fn(cumul_symbols, cache, mask):
+        def mock_autoregressive_fn(cumul_symbols, cache):
             dist1    = torch.tensor([0.0, 0.0, 0.0, 0.4, 0.6])
             dist2    = torch.tensor([0.0, 0.0, 1.0, 0.0, 0.0])
             dist3    = torch.tensor([0.0, 0.0, 1.0, 0.0, 0.0])
@@ -326,7 +329,7 @@ class TestBeamSearch(unittest.TestCase):
 
     def testBeamSearchNoEmptyString(self):
         # A distribution that places its highest probability on the empty string
-        def mock_autoregressive_fn(cumul_symbols, cache, mask):
+        def mock_autoregressive_fn(cumul_symbols, cache):
             dist1    = torch.tensor([0.0, 0.0, 0.6, 0.25, 0.15])
             dist2    = torch.tensor([0.0, 0.0, 1.0, 0.0,  0.0])
             dist3    = torch.tensor([0.0, 0.0, 1.0, 0.0,  0.0])
