@@ -44,8 +44,7 @@ class Generator:
         max_lengths, max_possible_length = self.get_max_lengths(src)
 
         batch = src.size(0)
-        src_len = src.size(2)
-        cache = BeamCache(batch, 1, src_len)
+        cache = BeamCache(batch, 1)
 
         autoregressive_fn = self.model.get_autoregressive_one_step_fn(src, cache)
         match self.config.decoding_method:

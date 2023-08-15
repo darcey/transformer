@@ -4,7 +4,7 @@ from beam_manager import *
 
 
 
-def mock_auto_fn_does_nothing(symbols, cache):
+def mock_auto_fn_does_nothing(symbols, timestep, cache):
     return 5
 
 class MockCacheDoesNothing:
@@ -243,15 +243,15 @@ class TestBeamManager(unittest.TestCase):
                                  [1,3,3,4],
                                  [1,3,3,4]]])
 
-        def mock_auto_fn(active_symbols, cache):
-            self.assertTrue(torch.equal(active_symbols, symbols.reshape(4*3,4)))
+        def mock_auto_fn(active_symbols, timestep, cache):
+            self.assertTrue(torch.equal(active_symbols, symbols.reshape(4*3,4)[:,timestep:timestep+1]))
             self.assertTrue(cache.mask is None)
 
             batch_beam = active_symbols.size(0)
-            probs3 = torch.tensor([[0.0, 0.1, 0.2, 0.3, 0.4]]).expand(batch_beam, -1)
-            probs4 = torch.tensor([[0.5, 0.6, 0.7, 0.8, 0.9]]).expand(batch_beam, -1)
-            is3 = (active_symbols[:,-1] == 3).type(torch.int).unsqueeze(-1)
-            is4 = (active_symbols[:,-1] == 4).type(torch.int).unsqueeze(-1)
+            probs3 = torch.tensor([[[0.0, 0.1, 0.2, 0.3, 0.4]]]).expand(batch_beam, -1, -1)
+            probs4 = torch.tensor([[[0.5, 0.6, 0.7, 0.8, 0.9]]]).expand(batch_beam, -1, -1)
+            is3 = (active_symbols == 3).type(torch.int).unsqueeze(-1)
+            is4 = (active_symbols == 4).type(torch.int).unsqueeze(-1)
             probs = is3 * probs3 + is4 * probs4
             return probs
 
@@ -318,16 +318,16 @@ class TestBeamManager(unittest.TestCase):
                                        [1,3,3,4],
                                        [1,3,3,4]])
         mask_correct = torch.tensor([True, True, False, False, True, False, True, True, False, False, False, True])
-    
-        def mock_auto_fn(active_symbols, cache):
-            self.assertTrue(torch.equal(active_symbols, active_correct))
+
+        def mock_auto_fn(active_symbols, timestep, cache):
+            self.assertTrue(torch.equal(active_symbols, active_correct[:,timestep:timestep+1]))
             self.assertTrue(torch.equal(cache.mask, mask_correct))
 
             batch_beam = active_symbols.size(0)
-            probs3 = torch.tensor([[0.0, 0.1, 0.2, 0.3, 0.4]]).expand(batch_beam, -1)
-            probs4 = torch.tensor([[0.5, 0.6, 0.7, 0.8, 0.9]]).expand(batch_beam, -1)
-            is3 = (active_symbols[:,-1] == 3).type(torch.int).unsqueeze(-1)
-            is4 = (active_symbols[:,-1] == 4).type(torch.int).unsqueeze(-1)
+            probs3 = torch.tensor([[[0.0, 0.1, 0.2, 0.3, 0.4]]]).expand(batch_beam, -1, -1)
+            probs4 = torch.tensor([[[0.5, 0.6, 0.7, 0.8, 0.9]]]).expand(batch_beam, -1, -1)
+            is3 = (active_symbols == 3).type(torch.int).unsqueeze(-1)
+            is4 = (active_symbols == 4).type(torch.int).unsqueeze(-1)
             probs = is3 * probs3 + is4 * probs4
             return probs
 

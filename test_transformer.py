@@ -1,4 +1,4 @@
-# TODO(darcey): add more thorough tests of cache use
+# TODO(darcey): add more thorough tests of cache use (e.g. unit tests for the cache inside attention, unit tests to make sure the cache is actually being called at appropriate times, etc.)
 # TODO(darcey): write tests which confirm that the model has all the parameters it's supposed to
 # TODO(darcey): write tests which show that when you save the state dict and then reload it it works the same way
 # TODO(darcey): write tests which show that when you save the state dict, then reload it, then do the same training step, the resulting parameters are the same
@@ -71,6 +71,8 @@ class TestNullPositionalEncoding(unittest.TestCase):
         correct_tensor = torch.zeros(6, 17, 12)
         actual_tensor = npe(torch.rand(6, 17, 12))
         self.assertTrue(torch.equal(actual_tensor, correct_tensor))
+        actual_tensor = npe(torch.rand(6, 17, 12), 5)
+        self.assertTrue(torch.equal(actual_tensor, correct_tensor))
 
 class TestSinusoidalPositionalEncoding(unittest.TestCase):
 
@@ -102,6 +104,19 @@ class TestSinusoidalPositionalEncoding(unittest.TestCase):
                                        [sin(3/1), cos(3/1), sin(3/exp)],
                                        [sin(4/1), cos(4/1), sin(4/exp)]])
         actual_tensor = spe(torch.zeros(50, 5, 3))
+        self.assertEqual(actual_tensor.shape, correct_tensor.shape)
+        torch.testing.assert_close(actual_tensor, correct_tensor, atol=0.005, rtol=0)
+
+    def testTimestep(self):
+        from math import sin, cos
+        spe = SinusoidalPositionalEncoding(20, 3, 100)
+        exp = math.pow(100, 2/3)
+        correct_tensor = torch.tensor([[sin(3/1), cos(3/1), sin(3/exp)],
+                                       [sin(4/1), cos(4/1), sin(4/exp)],
+                                       [sin(5/1), cos(5/1), sin(5/exp)],
+                                       [sin(6/1), cos(6/1), sin(6/exp)],
+                                       [sin(7/1), cos(7/1), sin(7/exp)]])
+        actual_tensor = spe(torch.zeros(50, 5, 3), timestep=3)
         self.assertEqual(actual_tensor.shape, correct_tensor.shape)
         torch.testing.assert_close(actual_tensor, correct_tensor, atol=0.005, rtol=0)
 
@@ -479,6 +494,8 @@ class TestInputLayer(unittest.TestCase):
         x = torch.randint(low=1, high=15, size=(10,6))
         out = il(x)
         self.assertEqual(out.shape, (10,6,self.config.arch.d_model))
+        out = il(x, timestep=5)
+        self.assertEqual(out.shape, (10,6,self.config.arch.d_model))
 
 
 
@@ -624,18 +641,37 @@ class TestCachedAutoregressiveDecoding(unittest.TestCase):
         self.config.train.ff_dropout = 0.0
         self.config.train.att_dropout = 0.0
 
-        x = torch.randint(low=1,high=30,size=(5,10))
-        y = torch.randint(low=1,high=30,size=(5,20))
+        x = torch.randint(low=1,high=30,size=(8,10))
+        y = torch.randint(low=1,high=30,size=(8,20))
 
         t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=False, num_dec_layers=6, masked_self_att_dec=True, output_probs=True, vocab_size=30, pad_idx=0, tgt_support_mask=None)
-
         out1 = t(x, y)
 
-        cache = BeamCache(5,1,10)
+        cache = BeamCache(4,2)
         auto_fn = t.get_autoregressive_one_step_fn(x, cache)
-        out2 = torch.empty(5,0,30)
-        for i in range(1,21):
-            out2_one_symb = auto_fn(y[:,:i], cache).unsqueeze(1)
+        out2 = torch.empty(8,0,30)
+        for i in range(0,20):
+            out2_one_symb = auto_fn(y[:,i:i+1], i, cache)
+            out2 = torch.cat((out2, out2_one_symb), dim=1)
+
+        torch.testing.assert_close(out1, out2, atol=0.00001, rtol=0)
+
+    def testTwoSeqAutoregressiveTwoSymb(self):
+        self.config.train.dropout = 0.0
+        self.config.train.ff_dropout = 0.0
+        self.config.train.att_dropout = 0.0
+
+        x = torch.randint(low=1,high=30,size=(8,10))
+        y = torch.randint(low=1,high=30,size=(8,20))
+
+        t = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=False, num_dec_layers=6, masked_self_att_dec=True, output_probs=True, vocab_size=30, pad_idx=0, tgt_support_mask=None)
+        out1 = t(x, y)
+
+        cache = BeamCache(4,2)
+        auto_fn = t.get_autoregressive_one_step_fn(x, cache)
+        out2 = torch.empty(8,0,30)
+        for i in range(0,20,2):
+            out2_one_symb = auto_fn(y[:,i:i+2], i, cache)
             out2 = torch.cat((out2, out2_one_symb), dim=1)
 
         torch.testing.assert_close(out1, out2, atol=0.00001, rtol=0)
@@ -645,16 +681,35 @@ class TestCachedAutoregressiveDecoding(unittest.TestCase):
         self.config.train.ff_dropout = 0.0
         self.config.train.att_dropout = 0.0
 
-        y = torch.randint(low=1,high=30,size=(5,20))
+        y = torch.randint(low=1,high=30,size=(8,20))
 
         t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=True, vocab_size=30, pad_idx=0, support_mask=None)
-
         out1 = t(y)
 
-        auto_fn = t.get_autoregressive_one_step_fn()
-        out2 = torch.empty(5,0,30)
-        for i in range(1,21):
-            out2_one_symb = auto_fn(y[:,:i]).unsqueeze(1)
+        cache = BeamCache(4,2)
+        auto_fn = t.get_autoregressive_one_step_fn(cache, 8, "cpu")
+        out2 = torch.empty(8,0,30)
+        for i in range(0,20):
+            out2_one_symb = auto_fn(y[:,i:i+1], i, cache)
+            out2 = torch.cat((out2, out2_one_symb), dim=1)
+
+        torch.testing.assert_close(out1, out2, atol=0.00001, rtol=0)
+
+    def testOneSeqAutoregressiveTwoSymb(self):
+        self.config.train.dropout = 0.0
+        self.config.train.ff_dropout = 0.0
+        self.config.train.att_dropout = 0.0
+
+        y = torch.randint(low=1,high=30,size=(8,20))
+
+        t = TransformerOneSeq(self.config, num_layers=6, masked_self_att=True, output_probs=True, vocab_size=30, pad_idx=0, support_mask=None)
+        out1 = t(y)
+
+        cache = BeamCache(4,2)
+        auto_fn = t.get_autoregressive_one_step_fn(cache, 8, "cpu")
+        out2 = torch.empty(8,0,30)
+        for i in range(0,20,2):
+            out2_one_symb = auto_fn(y[:,i:i+2], i, cache)
             out2 = torch.cat((out2, out2_one_symb), dim=1)
 
         torch.testing.assert_close(out1, out2, atol=0.00001, rtol=0)
