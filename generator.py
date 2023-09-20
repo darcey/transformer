@@ -33,6 +33,7 @@ class Generator:
         self.device = device
         self.config = config.gen
         self.window = config.arch.context_window_length
+        self.num_layers = config.arch.num_decoder_layers
         self.model = model
 
     # src: [batch_size, src_len]
@@ -44,7 +45,7 @@ class Generator:
         max_lengths, max_possible_length = self.get_max_lengths(src)
 
         batch = src.size(0)
-        cache = BeamCache(batch, 1)
+        cache = BeamCache(batch, 1, self.num_layers, self.device)
 
         autoregressive_fn = self.model.get_autoregressive_one_step_fn(src, cache)
         match self.config.decoding_method:
@@ -209,11 +210,25 @@ class Generator:
 
             # tell the beam manager to extend the beams by one token,
             # and return the probabilities of all the possible new beams
-            _, all_choices_cumulative_probs = beam_manager.compute_next_token_probs() # [batch, beam, vocab]
+            next_token_probs, all_choices_cumulative_probs = beam_manager.compute_next_token_probs() # [batch, beam, vocab]
 
             # modify the beams' probs as needed
             if time_step == 0 and not self.config.allow_empty_string:
                 all_choices_cumulative_probs[:,:,self.eos] = float("-inf")
+
+            # for finished sentences (e.g. ones that end in PAD),
+            # the beam manager will set the next token log probability
+            # of PAD to be 0, and everything else to be -inf.
+            # but this runs into trouble with the dummy sentences that are all PAD:
+            # since their cumulative probability is already -inf,
+            # it doesn't matter what the next token probability is.
+            # so, find the sentences that are all PAD, set the probability of PAD
+            # to something slightly higher than -inf, so PAD will be chosen as
+            # the next token.
+            all_pad = (all_choices_cumulative_probs == float("-inf"))
+            min_val = all_choices_cumulative_probs[~all_pad].min() - 10
+            all_pad_plus_pad = (next_token_probs == 0.0) * all_pad
+            all_choices_cumulative_probs[all_pad_plus_pad] = min_val
 
             # reshape, choose top k
             batch_size = all_choices_cumulative_probs.size(0)                                       # (may have changed if sents were pruned)

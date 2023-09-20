@@ -631,7 +631,7 @@ class TestCachedAutoregressiveDecoding(unittest.TestCase):
 
         out1 = t(x, y)
 
-        cache = BeamCache(5,1)
+        cache = BeamCache(5,1,6,"cpu")
         auto_fn = t.get_autoregressive_one_step_fn(x, cache)
         out2 = torch.empty(5,0,30)
         for i in range(1,21):

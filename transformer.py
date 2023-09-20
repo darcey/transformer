@@ -491,11 +491,11 @@ class TransformerTwoSeq(torch.nn.Module):
         src_input    = self.dropout(src_embed)
         src_output   = self.encoder(src_input, src_pad_mask)
 
-        for layer in self.decoder.layers:
-            cross_att = layer.cross_attention
-            cache.cache_k(id(cross_att), cross_att.project_k(src_output))
-            cache.cache_v(id(cross_att), cross_att.project_v(src_output))
         cache.cache_src_mask(src_pad_mask)
+        for i, layer in enumerate(self.decoder.layers):
+            cross_att = layer.cross_attention
+            cache.cache_src_k(id(cross_att), i, cross_att.project_k(src_output))
+            cache.cache_src_v(id(cross_att), i, cross_att.project_v(src_output))
 
         # tgt: [batch, tgt_seq]
         # ret: [batch, vocab_size]

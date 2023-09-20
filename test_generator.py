@@ -11,11 +11,13 @@ class MockModelDoesNothing:
         return 5
 
 class MockCacheDoesNothing:
-    def register_finished_mask(self, mask):
-        return
     def expand_to_beam_size(self, beam_size):
         return
-    def trim_finished_sents(self, finished):
+    def register_finished_sents(self, mask):
+        return
+    def register_finished_beams(self, mask):
+        return
+    def select_idxs(self, chosen_idxs):
         return
 
 
