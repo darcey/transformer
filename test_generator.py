@@ -163,13 +163,13 @@ class TestSampling(unittest.TestCase):
 
     def testSampleSimpleDistribution1(self):
         # At beginning, splits off into two possibilities: all as or all bs.
-        def mock_autoregressive_fn(cumul_symbols, cache):
-            a_dist   = torch.tensor([0.0, 0.0, 0.5, 0.5, 0.0])
-            b_dist   = torch.tensor([0.0, 0.0, 0.5, 0.0, 0.5])
-            ab_dist  = torch.tensor([0.0, 0.0, 0.0, 0.5, 0.5])
-            all_dist = (cumul_symbols[:,-1] == 1).unsqueeze(1).type(torch.float) * ab_dist + \
-                       (cumul_symbols[:,-1] == 3).unsqueeze(1).type(torch.float) * a_dist + \
-                       (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * b_dist
+        def mock_autoregressive_fn(cumul_symbols, timestep, cache):
+            a_dist   = torch.tensor([[[0.0, 0.0, 0.5, 0.5, 0.0]]])
+            b_dist   = torch.tensor([[[0.0, 0.0, 0.5, 0.0, 0.5]]])
+            ab_dist  = torch.tensor([[[0.0, 0.0, 0.0, 0.5, 0.5]]])
+            all_dist = (cumul_symbols == 1).unsqueeze(-1).type(torch.float) * ab_dist + \
+                       (cumul_symbols == 3).unsqueeze(-1).type(torch.float) * a_dist + \
+                       (cumul_symbols == 4).unsqueeze(-1).type(torch.float) * b_dist
             return torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*1000)
@@ -187,12 +187,12 @@ class TestSampling(unittest.TestCase):
     def testSampleSimpleDistribution2(self):
         # Generates strings which alternate between as and bs
         # Always starts with an a, ends with a b
-        def mock_autoregressive_fn(cumul_symbols, cache):
-            a_dist   = torch.tensor([0.0, 0.0, 0.5, 0.5, 0.0])
-            b_dist   = torch.tensor([0.0, 0.0, 0.0, 0.0, 1.0])
-            all_dist = (cumul_symbols[:,-1] == 1).unsqueeze(1).type(torch.float) * a_dist + \
-                       (cumul_symbols[:,-1] == 3).unsqueeze(1).type(torch.float) * b_dist + \
-                       (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * a_dist
+        def mock_autoregressive_fn(cumul_symbols, timestep, cache):
+            a_dist   = torch.tensor([[[0.0, 0.0, 0.5, 0.5, 0.0]]])
+            b_dist   = torch.tensor([[[0.0, 0.0, 0.0, 0.0, 1.0]]])
+            all_dist = (cumul_symbols == 1).unsqueeze(-1).type(torch.float) * a_dist + \
+                       (cumul_symbols == 3).unsqueeze(-1).type(torch.float) * b_dist + \
+                       (cumul_symbols == 4).unsqueeze(-1).type(torch.float) * a_dist
             return torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*1000)
@@ -263,13 +263,13 @@ class TestBeamSearch(unittest.TestCase):
 
     def testBeamSearch(self):
         # Generates strings which are either all as or all bs
-        def mock_autoregressive_fn(cumul_symbols, cache):
-            dist1    = torch.tensor([0.0, 0.0, 0.0,  0.5,  0.5])
-            dist2    = torch.tensor([0.0, 0.0, 0.55, 0.45, 0.0])
-            dist3    = torch.tensor([0.0, 0.0, 0.6,  0.0,  0.4])
-            all_dist = (cumul_symbols[:,-1] == 1).unsqueeze(1).type(torch.float) * dist1 + \
-                       (cumul_symbols[:,-1] == 3).unsqueeze(1).type(torch.float) * dist2 + \
-                       (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * dist3
+        def mock_autoregressive_fn(cumul_symbols, timestep, cache):
+            dist1    = torch.tensor([[[0.0, 0.0, 0.0,  0.5,  0.5]]])
+            dist2    = torch.tensor([[[0.0, 0.0, 0.55, 0.45, 0.0]]])
+            dist3    = torch.tensor([[[0.0, 0.0, 0.6,  0.0,  0.4]]])
+            all_dist = (cumul_symbols == 1).unsqueeze(-1).type(torch.float) * dist1 + \
+                       (cumul_symbols == 3).unsqueeze(-1).type(torch.float) * dist2 + \
+                       (cumul_symbols == 4).unsqueeze(-1).type(torch.float) * dist3
             return torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*2)
@@ -298,13 +298,13 @@ class TestBeamSearch(unittest.TestCase):
     # in the language is n < k.
     def testBeamSearchBeamTooBig(self):
         # A distribution that only generates two strings
-        def mock_autoregressive_fn(cumul_symbols, cache):
-            dist1    = torch.tensor([0.0, 0.0, 0.0, 0.4, 0.6])
-            dist2    = torch.tensor([0.0, 0.0, 1.0, 0.0, 0.0])
-            dist3    = torch.tensor([0.0, 0.0, 1.0, 0.0, 0.0])
-            all_dist = (cumul_symbols[:,-1] == 1).unsqueeze(1).type(torch.float) * dist1 + \
-                       (cumul_symbols[:,-1] == 3).unsqueeze(1).type(torch.float) * dist2 + \
-                       (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * dist3
+        def mock_autoregressive_fn(cumul_symbols, timestep, cache):
+            dist1    = torch.tensor([[[0.0, 0.0, 0.0, 0.4, 0.6]]])
+            dist2    = torch.tensor([[[0.0, 0.0, 1.0, 0.0, 0.0]]])
+            dist3    = torch.tensor([[[0.0, 0.0, 1.0, 0.0, 0.0]]])
+            all_dist = (cumul_symbols == 1).unsqueeze(-1).type(torch.float) * dist1 + \
+                       (cumul_symbols == 3).unsqueeze(-1).type(torch.float) * dist2 + \
+                       (cumul_symbols == 4).unsqueeze(-1).type(torch.float) * dist3
             return torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*2)
@@ -331,13 +331,13 @@ class TestBeamSearch(unittest.TestCase):
 
     def testBeamSearchNoEmptyString(self):
         # A distribution that places its highest probability on the empty string
-        def mock_autoregressive_fn(cumul_symbols, cache):
-            dist1    = torch.tensor([0.0, 0.0, 0.6, 0.25, 0.15])
-            dist2    = torch.tensor([0.0, 0.0, 1.0, 0.0,  0.0])
-            dist3    = torch.tensor([0.0, 0.0, 1.0, 0.0,  0.0])
-            all_dist = (cumul_symbols[:,-1] == 1).unsqueeze(1).type(torch.float) * dist1 + \
-                       (cumul_symbols[:,-1] == 3).unsqueeze(1).type(torch.float) * dist2 + \
-                       (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * dist3
+        def mock_autoregressive_fn(cumul_symbols, timestep, cache):
+            dist1    = torch.tensor([[[0.0, 0.0, 0.6, 0.25, 0.15]]])
+            dist2    = torch.tensor([[[0.0, 0.0, 1.0, 0.0,  0.0]]])
+            dist3    = torch.tensor([[[0.0, 0.0, 1.0, 0.0,  0.0]]])
+            all_dist = (cumul_symbols == 1).unsqueeze(-1).type(torch.float) * dist1 + \
+                       (cumul_symbols == 3).unsqueeze(-1).type(torch.float) * dist2 + \
+                       (cumul_symbols == 4).unsqueeze(-1).type(torch.float) * dist3
             return torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*2)

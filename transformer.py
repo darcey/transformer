@@ -1,4 +1,3 @@
-# TODO(darcey): make it possible for the autoregressive one step function to handle input sequences of length > 1
 # TODO(darcey): investigate how the state dict saves stuff; it looks like it saves the input and output embeddings separately even though they're tied?
 # TODO(darcey): remove dependence on max sentence len (in positional encoding)
 
@@ -56,7 +55,7 @@ class NullPositionalEncoding(torch.nn.Module):
 
     # x:   [batch, seq, d_model]
     # ret: [batch, seq, d_model]
-    def forward(self, x):
+    def forward(self, x, timestep=0):
         return torch.zeros_like(x)
 
 class SinusoidalPositionalEncoding(torch.nn.Module):
@@ -75,9 +74,9 @@ class SinusoidalPositionalEncoding(torch.nn.Module):
 
     # x:   [batch, seq, d_model]
     # ret:        [seq, d_model]
-    def forward(self, x):
+    def forward(self, x, timestep=0):
         seq_len = x.size(1)
-        return self.pe[:seq_len, :]
+        return self.pe[timestep:timestep+seq_len, :]
 
 
 
@@ -203,18 +202,33 @@ class MultiHeadAttention(torch.nn.Module):
     # mask: [batch, seq1, seq2] or [batch, 1, seq2]
     # ret:  [batch, seq1, d_input]
     def forward(self, q, k=None, v=None, mask=None, cache=None):
-        # Currently operates in two modes:
-        #   - k, v projections are cached (used for cross-att)
-        #   - k, v projections are computed (used for self-att)
-        if (k == None or v == None) and cache == None:
+        # Operates in three modes:
+        #   - no caching (used during normal forward computation)
+        #   - the k, v projections are completely cached and just need to be looked up (used for cross-attention)
+        #   - the k, v projections are partly cached, partly built up incrementally (used for self-attention)
+        if ((k == None or v == None) and cache == None) or\
+           ((k == None) != (v == None)):
             raise ValueError("MultiHeadAttention: bad combination of arguments")
 
         batch = q.size(0)
 
         # project to heads (or retrieve cached projection)
         q = self.proj_q(q)
-        k = cache.get_k(id(self)) if cache else self.proj_k(k)
-        v = cache.get_v(id(self)) if cache else self.proj_v(v)
+        if cache is None:
+            k = self.proj_k(k)
+            v = self.proj_v(v)
+        else:
+            k_cache = cache.get_k(id(self))
+            v_cache = cache.get_v(id(self))
+            if k is not None:
+                k_proj = self.proj_k(k)
+                v_proj = self.proj_v(v)
+                k_cache = torch.cat((k_cache, k_proj), dim=1)
+                v_cache = torch.cat((v_cache, v_proj), dim=1)
+                cache.cache_tgt_k(id(self), None, k_cache)
+                cache.cache_tgt_v(id(self), None, v_cache)
+            k = k_cache
+            v = v_cache
 
         # reshape to heads, permute for matrix multiplication
         q = q.reshape(batch, -1, self.num_heads, self.qk_dim).permute((0,2,1,3))
@@ -287,18 +301,16 @@ class Layer(torch.nn.Module):
     # ret:       [batch, this_seq, d_model]
     def forward(self, this_seq, this_mask, prev_seq=None, prev_mask=None, cache=None):
         if self.take_two_seqs:
-            if (prev_mask == None) or (prev_seq == None and cache == None):
+            if ((cache == None) and (prev_seq == None or prev_mask == None)) or\
+               ((cache != None) and (prev_seq != None or prev_mask == None)):
                 raise ValueError("Layer: bad combination of arguments")
         else:
             if (prev_mask != None) or (prev_seq != None):
                 raise ValueError("Layer: bad combination of arguments")
 
-        self_att_func = lambda this: self.self_attention(this, this, this, this_mask)
+        self_att_func = lambda this: self.self_attention(this, this, this, this_mask, cache)
         if self.take_two_seqs:
-            if cache:
-                cross_att_func = lambda this: self.cross_attention(this, mask=prev_mask, cache=cache)
-            else:
-                cross_att_func = lambda this: self.cross_attention(this, prev_seq, prev_seq, prev_mask)
+            cross_att_func = lambda this: self.cross_attention(this, prev_seq, prev_seq, prev_mask, cache)
         feed_forward_func = lambda this: self.feed_forward(this)
 
         ret = this_seq
@@ -328,14 +340,20 @@ class EncoderOrDecoder(torch.nn.Module):
     # prev_seq:  [batch, prev_seq, d_model]
     # prev_mask: [batch, 1, prev_seq]
     # this_seq:  [batch, this_seq, d_model]
-    # this_mask: [batch, 1, this_seq]
+    # this_mask: [batch, 1, this_seq] or [batch, 1, cached_seq]
     # ret:       [batch, this_seq, d_model]
     def forward(self, this_seq, this_mask, prev_seq=None, prev_mask=None, cache=None):
         if self.masked_self_att:
-            l = this_seq.size(1)
-            causal_mask = torch.triu(torch.full((l, l), float('-inf')), diagonal=1)
+            l = this_seq.size(1) # this_seq
+            causal_mask = torch.triu(torch.full((l, l), float('-inf')), diagonal=1)     # [this_seq, this_seq]
             causal_mask = causal_mask.type(this_seq.type())
-            this_mask = this_mask + causal_mask
+            if cache:
+                cached_seq_len = this_mask.size(-1) # cached_seq
+                full_causal_mask = torch.zeros(l, cached_seq_len).type(this_seq.type()) # [this_seq, cached_seq]
+                full_causal_mask[:, -l:] = causal_mask
+                this_mask = this_mask + full_causal_mask                                # [batch, 1, cached_seq] + [this_seq, cached_seq] = [batch, this_seq, cached_seq]
+            else:
+                this_mask = this_mask + causal_mask                                     # [batch, 1, this_seq] + [this_seq, this_seq] = [batch, this_seq, this_seq]
 
         ret = this_seq
         for layer in self.layers:
@@ -354,9 +372,9 @@ class InputLayer(torch.nn.Module):
 
     # seq: [batch, seq]
     # ret: [batch, seq, d_model]
-    def forward(self, seq):
+    def forward(self, seq, timestep=0):
         seq_embed  = self.embedding(seq)
-        seq_embed += self.positional(seq_embed)
+        seq_embed += self.positional(seq_embed, timestep)
         return seq_embed
 
 
@@ -462,6 +480,7 @@ class TransformerTwoSeq(torch.nn.Module):
                                         num_layers=num_dec_layers,
                                         take_two_seqs=True,
                                         masked_self_att=masked_self_att_dec)
+        self.masked_self_att_dec = masked_self_att_dec
 
     # src: [batch, src_seq]
     # tgt: [batch, tgt_seq]
@@ -483,31 +502,40 @@ class TransformerTwoSeq(torch.nn.Module):
 
     # src: [batch, src_seq]
     def get_autoregressive_one_step_fn(self, src, cache):
-        if not self.output_probs:
-            raise Exception("Can only construct one step function for model that outputs probabilities.")
+        if not self.output_probs or not self.masked_self_att_dec:
+            raise Exception("Can only construct one step function for decoder with masked self attention, that outputs probabilities.")
 
         src_pad_mask = get_pad_mask(src, self.pad_idx)
         src_embed    = self.input(src)
         src_input    = self.dropout(src_embed)
         src_output   = self.encoder(src_input, src_pad_mask)
 
+        batch_size = src.size(0)
         cache.cache_src_mask(src_pad_mask)
+        cache.cache_tgt_mask(torch.empty(batch_size, 1, 0).type(src_pad_mask.type()))
+
         for i, layer in enumerate(self.decoder.layers):
             cross_att = layer.cross_attention
             cache.cache_src_k(id(cross_att), i, cross_att.project_k(src_output))
             cache.cache_src_v(id(cross_att), i, cross_att.project_v(src_output))
 
+            self_att = layer.self_attention
+            cache.cache_tgt_k(id(self_att), i, torch.empty(batch_size, 0, self_att.num_heads*self_att.qk_dim).type(src.type()))
+            cache.cache_tgt_v(id(self_att), i, torch.empty(batch_size, 0, self_att.num_heads*self_att.qk_dim).type(src.type()))
+
         # tgt: [batch, tgt_seq]
-        # ret: [batch, vocab_size]
-        def run_decoder_for_one_step(tgt, cache):
+        # ret: [batch, tgt_seq, vocab_size]
+        def run_decoder_for_one_step(tgt, timestep, cache):
             src_pad_mask = cache.get_src_mask()
 
-            tgt_pad_mask = get_pad_mask(tgt, self.pad_idx)
-            tgt_embed    = self.input(tgt)
+            tgt_pad_mask = torch.cat((cache.get_tgt_mask(), get_pad_mask(tgt, self.pad_idx)), dim=-1)
+            cache.cache_tgt_mask(tgt_pad_mask)
+
+            tgt_embed    = self.input(tgt, timestep)
             tgt_input    = self.dropout(tgt_embed)
             tgt_output   = self.decoder(tgt_input, tgt_pad_mask, prev_mask=src_pad_mask, cache=cache)
             tgt_probs    = self.output(tgt_output)
-            return tgt_probs[:,-1,:]
+            return tgt_probs
 
         return run_decoder_for_one_step
 
@@ -528,6 +556,7 @@ class TransformerOneSeq(torch.nn.Module):
                                         num_layers=num_layers,
                                         take_two_seqs=False,
                                         masked_self_att=masked_self_att)
+        self.masked_self_att = masked_self_att
 
     # seq: [batch, seq]
     # ret: [batch, seq, vocab_size]
@@ -543,19 +572,26 @@ class TransformerOneSeq(torch.nn.Module):
 
     # note: this currently looks just like the forward function
     #       but after caching is implemented it will be different
-    def get_autoregressive_one_step_fn(self):
-        if not self.output_probs:
-            raise Exception("Can only construct one step function for model that outputs probabilities.")
+    def get_autoregressive_one_step_fn(self, cache, batch_size, device):
+        if not self.output_probs or not self.masked_self_att:
+            raise Exception("Can only construct one step function for model with masked self attention, that outputs probabilities.")
+
+        cache.cache_tgt_mask(torch.empty(batch_size, 1, 0, device=device))
+        for i, layer in enumerate(self.xxcoder.layers):
+            self_att = layer.self_attention
+            cache.cache_tgt_k(id(self_att), i, torch.empty(batch_size, 0, self_att.num_heads*self_att.qk_dim, device=device))
+            cache.cache_tgt_v(id(self_att), i, torch.empty(batch_size, 0, self_att.num_heads*self_att.qk_dim, device=device))
 
         # seq: [batch, seq]
-        # ret: [batch, vocab_size]
-        def run_model_for_one_step(seq):
-            pad_mask = get_pad_mask(seq, self.pad_idx)
+        # ret: [batch, seq, vocab_size]
+        def run_model_for_one_step(seq, timestep, cache):
+            pad_mask = torch.cat((cache.get_tgt_mask(), get_pad_mask(seq, self.pad_idx)), dim=-1)
+            cache.cache_tgt_mask(pad_mask)
 
-            seq_embed  = self.input(seq)
+            seq_embed  = self.input(seq, timestep)
             seq_input  = self.dropout(seq_embed)
-            seq_output = self.xxcoder(seq_input, pad_mask)
+            seq_output = self.xxcoder(seq_input, pad_mask, cache=cache)
             seq_probs  = self.output(seq_output)
-            return seq_probs[:,-1,:]
+            return seq_probs
 
         return run_model_for_one_step

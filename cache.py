@@ -1,3 +1,5 @@
+# Experiment with src side caching; does it work better without caching the k and v computations?
+
 import torch
 
 # All functions assume the data is in [batch*beam, ...] format.
@@ -10,6 +12,7 @@ class BeamCache:
         self.beam_size = beam_size
         self.num_layers = num_layers
         self.src_id_to_layer_num = dict()
+        self.tgt_id_to_layer_num = dict()
 
         self.src_mask = None
         self.src_k_num_to_temp_cache = dict()
@@ -19,17 +22,30 @@ class BeamCache:
         self.src_v_num_cached = 0
         self.src_v = None
 
+        self.tgt_mask = None
+        self.tgt_k_num_to_temp_cache = dict()
+        self.tgt_k_num_cached = 0
+        self.tgt_k = None
+        self.tgt_v_num_to_temp_cache = dict()
+        self.tgt_v_num_cached = 0
+        self.tgt_v = None
+
         self.finished_mask = torch.tensor([False]*batch_size*beam_size, device=device)
         self.idx_mapping = torch.arange(batch_size * beam_size, dtype=torch.int, device=device)
 
-    # Store the source mask.
+    # Store and retrieve masks.
     # src_mask: [batch_size * beam_size, 1, src_seq]
+    # tgt_mask: [batch_size * beam_size, 1, tgt_seq]
     def cache_src_mask(self, src_mask):
         self.src_mask = src_mask
-    # Retrieve the source mask.
+    def cache_tgt_mask(self, tgt_mask):
+        self.tgt_mask = tgt_mask
     # src_mask: [(batch_size * beam_size) - |finished|, 1, src_seq]
+    # tgt_mask: [(batch_size * beam_size) - |finished|, 1, tgt_seq]
     def get_src_mask(self):
         return self.src_mask
+    def get_tgt_mask(self):
+        return self.tgt_mask    
 
     # Store the k and v projections.
     # Group all the layer-specific caches into a single tensor for efficiency.
@@ -48,6 +64,26 @@ class BeamCache:
         if self.src_v_num_cached == self.num_layers:
             self.src_v = torch.stack([self.src_v_num_to_temp_cache[i] for i in range(self.num_layers)])
             self.src_v_num_cached = 0
+    def cache_tgt_k(self, layer_id, layer_num, k):
+        if layer_num != None:
+            self.tgt_id_to_layer_num[layer_id] = layer_num
+        else:
+            layer_num = self.tgt_id_to_layer_num[layer_id]
+        self.tgt_k_num_to_temp_cache[layer_num] = k
+        self.tgt_k_num_cached += 1
+        if self.tgt_k_num_cached == self.num_layers:
+            self.tgt_k = torch.stack([self.tgt_k_num_to_temp_cache[i] for i in range(self.num_layers)])
+            self.tgt_k_num_cached = 0
+    def cache_tgt_v(self, layer_id, layer_num, v):
+        if layer_num != None:
+            self.tgt_id_to_layer_num[layer_id] = layer_num
+        else:
+            layer_num = self.tgt_id_to_layer_num[layer_id]
+        self.tgt_v_num_to_temp_cache[layer_num] = v
+        self.tgt_v_num_cached += 1
+        if self.tgt_v_num_cached == self.num_layers:
+            self.tgt_v = torch.stack([self.tgt_v_num_to_temp_cache[i] for i in range(self.num_layers)])
+            self.tgt_v_num_cached = 0
 
     # Retrieve the k and v projections, for either src or tgt.
     # k, v: [(batch_size * beam_size) - |finished|, seq, d_attention]
@@ -57,8 +93,9 @@ class BeamCache:
             k = self.src_k[layer_num,:,:,:]
             return k
         else:
-            # target stuff goes here
-            return None
+            layer_num = self.tgt_id_to_layer_num[layer_id]
+            k = self.tgt_k[layer_num,:,:,:]
+            return k
         return k
     def get_v(self, layer_id):
         if layer_id in self.src_id_to_layer_num:
@@ -66,18 +103,26 @@ class BeamCache:
             v = self.src_v[layer_num,:,:,:]
             return v
         else:
-            # target stuff goes here
-            return None
+            layer_num = self.tgt_id_to_layer_num[layer_id]
+            v = self.tgt_v[layer_num,:,:,:]
+            return v
 
     # Reshape the cache to accommodate beam_size beams or samples per sentence.
     # Should be done after the src stuff has been cached, but before any decoding.
     def expand_to_beam_size(self, beam_size):
         self.beam_size = beam_size
+
         src_len = self.src_k.size(-2)
-        if self.src_mask is not None:
-            self.src_mask = self.src_mask.unsqueeze(1).expand(-1, beam_size, -1, -1).reshape(self.batch_size * beam_size, 1, src_len)
+        self.src_mask = self.src_mask.unsqueeze(1).expand(-1, beam_size, -1, -1).reshape(self.batch_size * beam_size, 1, src_len)
         self.src_k = self.src_k.unsqueeze(2).expand(-1, -1, beam_size, -1, -1).reshape(self.num_layers, self.batch_size * beam_size, src_len, -1)
         self.src_v = self.src_v.unsqueeze(2).expand(-1, -1, beam_size, -1, -1).reshape(self.num_layers, self.batch_size * beam_size, src_len, -1)
+
+        tgt_len = self.tgt_k.size(-2)
+        tgt_dim = self.tgt_k.size(-1)
+        self.tgt_mask = self.tgt_mask.unsqueeze(1).expand(-1, beam_size, -1, -1).reshape(self.batch_size * beam_size, 1, tgt_len)
+        self.tgt_k = self.tgt_k.unsqueeze(2).expand(-1, -1, beam_size, -1, -1).reshape(self.num_layers, self.batch_size * beam_size, tgt_len, tgt_dim)
+        self.tgt_v = self.tgt_v.unsqueeze(2).expand(-1, -1, beam_size, -1, -1).reshape(self.num_layers, self.batch_size * beam_size, tgt_len, tgt_dim)
+
         self.finished_mask = self.finished_mask.unsqueeze(1).expand(-1, beam_size).reshape(self.batch_size * beam_size)
         self.update_idx_mapping()
 
@@ -99,8 +144,11 @@ class BeamCache:
 
         # Update the caches in light of the new finished mask
         self.src_mask = self.src_mask[~finished_mask_curr]
+        self.tgt_mask = self.tgt_mask[~finished_mask_curr]
         self.src_k = self.src_k.permute((1,0,2,3))[~finished_mask_curr].permute((1,0,2,3))
         self.src_v = self.src_v.permute((1,0,2,3))[~finished_mask_curr].permute((1,0,2,3))
+        self.tgt_k = self.tgt_k.permute((1,0,2,3))[~finished_mask_curr].permute((1,0,2,3))
+        self.tgt_v = self.tgt_v.permute((1,0,2,3))[~finished_mask_curr].permute((1,0,2,3))
 
     # Register finished beams.
     # This is the same as register_finished_sents, except that
@@ -139,5 +187,8 @@ class BeamCache:
 
         # Now update everything else.
         self.src_mask = torch.index_select(self.src_mask, 0, mapped_idxs)
+        self.tgt_mask = torch.index_select(self.tgt_mask, 0, mapped_idxs)
         self.src_k    = torch.index_select(self.src_k, 1, mapped_idxs)
         self.src_v    = torch.index_select(self.src_v, 1, mapped_idxs)
+        self.tgt_k    = torch.index_select(self.tgt_k, 1, mapped_idxs)
+        self.tgt_v    = torch.index_select(self.tgt_v, 1, mapped_idxs)

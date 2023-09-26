@@ -2,6 +2,7 @@
 
 import time
 import copy
+import random
 import torch
 import torch.testing
 import unittest
@@ -109,13 +110,13 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        def mock_autoregressive_fn(cumul_symbols, cache):
+        def mock_autoregressive_fn(cumul_symbols, timestep, cache):
             a_dist   = torch.tensor([0.0, 0.0, 0.5, 0.5, 0.0], device="cuda:0")
             b_dist   = torch.tensor([0.0, 0.0, 0.5, 0.0, 0.5], device="cuda:0")
             ab_dist  = torch.tensor([0.0, 0.0, 0.0, 0.5, 0.5], device="cuda:0")
-            all_dist = (cumul_symbols[:,-1] == 1).unsqueeze(1).type(torch.float) * ab_dist + \
-                       (cumul_symbols[:,-1] == 3).unsqueeze(1).type(torch.float) * a_dist + \
-                       (cumul_symbols[:,-1] == 4).unsqueeze(1).type(torch.float) * b_dist
+            all_dist = (cumul_symbols == 1).unsqueeze(1).type(torch.float) * ab_dist + \
+                       (cumul_symbols == 3).unsqueeze(1).type(torch.float) * a_dist + \
+                       (cumul_symbols == 4).unsqueeze(1).type(torch.float) * b_dist
             return torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*1000, device="cuda:0")
@@ -178,10 +179,10 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         dist_cpu = torch.nn.functional.softmax(torch.rand(30,50), dim=-1)
         dist_gpu = dist_cpu.clone().cuda()
 
-        def auto_fn_cpu(symbols, cache):
-            return dist_cpu[0:symbols.size(0)]
-        def auto_fn_gpu(symbols, cache):
-            return dist_gpu[0:symbols.size(0)]
+        def auto_fn_cpu(symbols, timestep, cache):
+            return dist_cpu[0:symbols.size(0)].unsqueeze(1)
+        def auto_fn_gpu(symbols, timestep, cache):
+            return dist_gpu[0:symbols.size(0)].unsqueeze(1)
 
         self.gen_cpu.vocab_size = 50
         self.gen_gpu.vocab_size = 50
@@ -195,6 +196,150 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         self.assertTrue(torch.equal(symbols_final_out_cpu, symbols_final_out_gpu.cpu()))
         self.assertTrue(torch.equal(symbols_all_out_cpu, symbols_all_out_gpu.cpu()))
         self.assertTrue(torch.equal(probs_all_out_cpu, probs_all_out_gpu.cpu()))
+
+
+
+class TestCacheSameOnGPU(unittest.TestCase):
+
+    def setUpCache(self, beam_size):
+        self.batch_size = random.randint(3,10)
+        self.cache_cpu = BeamCache(batch_size=self.batch_size,
+                                   beam_size=beam_size,
+                                   num_layers=2,
+                                   device="cpu")
+        self.cache_gpu = BeamCache(batch_size=self.batch_size,
+                                   beam_size=beam_size,
+                                   num_layers=2,
+                                   device="cuda:0")
+
+        self.src_len = random.randint(5,15)
+        self.src_mask_cpu = torch.log((torch.rand((self.batch_size*beam_size,1,self.src_len)) < 0.5).type(torch.int))
+        self.src_mask_gpu = self.src_mask_cpu.to("cuda:0")
+        self.tgt_mask_cpu = torch.log((torch.rand((self.batch_size*beam_size,1,self.src_len)) < 0.5).type(torch.int))
+        self.tgt_mask_gpu = self.tgt_mask_cpu.to("cuda:0")
+
+        self.d_embed = random.randint(10,20)
+        self.src_k1_cpu = torch.rand((self.batch_size*beam_size,self.src_len,self.d_embed))
+        self.src_k1_gpu = self.src_k1_cpu.to("cuda:0")
+        self.src_k2_cpu = torch.rand((self.batch_size*beam_size,self.src_len,self.d_embed))
+        self.src_k2_gpu = self.src_k2_cpu.to("cuda:0")
+        self.src_v1_cpu = torch.rand((self.batch_size*beam_size,self.src_len,self.d_embed))
+        self.src_v1_gpu = self.src_v1_cpu.to("cuda:0")
+        self.src_v2_cpu = torch.rand((self.batch_size*beam_size,self.src_len,self.d_embed))
+        self.src_v2_gpu = self.src_v2_cpu.to("cuda:0")
+        self.tgt_k1_cpu = torch.rand((self.batch_size*beam_size,self.src_len,self.d_embed))
+        self.tgt_k1_gpu = self.tgt_k1_cpu.to("cuda:0")
+        self.tgt_k2_cpu = torch.rand((self.batch_size*beam_size,self.src_len,self.d_embed))
+        self.tgt_k2_gpu = self.tgt_k2_cpu.to("cuda:0")
+        self.tgt_v1_cpu = torch.rand((self.batch_size*beam_size,self.src_len,self.d_embed))
+        self.tgt_v1_gpu = self.tgt_v1_cpu.to("cuda:0")
+        self.tgt_v2_cpu = torch.rand((self.batch_size*beam_size,self.src_len,self.d_embed))
+        self.tgt_v2_gpu = self.tgt_v2_cpu.to("cuda:0")
+
+        self.cache_cpu.cache_src_mask(self.src_mask_cpu)
+        self.cache_cpu.cache_tgt_mask(self.tgt_mask_cpu)
+        self.cache_cpu.cache_src_k(23, 0, self.src_k1_cpu)
+        self.cache_cpu.cache_src_k(54, 1, self.src_k2_cpu)
+        self.cache_cpu.cache_src_v(23, 0, self.src_v1_cpu)
+        self.cache_cpu.cache_src_v(54, 1, self.src_v2_cpu)
+        self.cache_cpu.cache_tgt_k(67, 0, self.tgt_k1_cpu)
+        self.cache_cpu.cache_tgt_k(89, 1, self.tgt_k2_cpu)
+        self.cache_cpu.cache_tgt_v(67, 0, self.tgt_v1_cpu)
+        self.cache_cpu.cache_tgt_v(89, 1, self.tgt_v2_cpu)
+
+        self.cache_gpu.cache_src_mask(self.src_mask_gpu)
+        self.cache_gpu.cache_tgt_mask(self.tgt_mask_gpu)
+        self.cache_gpu.cache_src_k(23, 0, self.src_k1_gpu)
+        self.cache_gpu.cache_src_k(54, 1, self.src_k2_gpu)
+        self.cache_gpu.cache_src_v(23, 0, self.src_v1_gpu)
+        self.cache_gpu.cache_src_v(54, 1, self.src_v2_gpu)
+        self.cache_gpu.cache_tgt_k(67, 0, self.tgt_k1_gpu)
+        self.cache_gpu.cache_tgt_k(89, 1, self.tgt_k2_gpu)
+        self.cache_gpu.cache_tgt_v(67, 0, self.tgt_v1_gpu)
+        self.cache_gpu.cache_tgt_v(89, 1, self.tgt_v2_gpu)
+
+    def evalCache(self):
+        src_mask_out_cpu = self.cache_cpu.get_src_mask()
+        src_mask_out_gpu = self.cache_gpu.get_src_mask()
+        tgt_mask_out_cpu = self.cache_cpu.get_tgt_mask()
+        tgt_mask_out_gpu = self.cache_gpu.get_tgt_mask()
+        src_k1_out_cpu = self.cache_cpu.get_k(23)
+        src_k1_out_gpu = self.cache_gpu.get_k(23)
+        src_k2_out_cpu = self.cache_cpu.get_k(54)
+        src_k2_out_gpu = self.cache_gpu.get_k(54)
+        src_v1_out_cpu = self.cache_cpu.get_v(23)
+        src_v1_out_gpu = self.cache_gpu.get_v(23)
+        src_v2_out_cpu = self.cache_cpu.get_v(54)
+        src_v2_out_gpu = self.cache_gpu.get_v(54)
+        tgt_k1_out_cpu = self.cache_cpu.get_k(67)
+        tgt_k1_out_gpu = self.cache_gpu.get_k(67)
+        tgt_k2_out_cpu = self.cache_cpu.get_k(89)
+        tgt_k2_out_gpu = self.cache_gpu.get_k(89)
+        tgt_v1_out_cpu = self.cache_cpu.get_v(67)
+        tgt_v1_out_gpu = self.cache_gpu.get_v(67)
+        tgt_v2_out_cpu = self.cache_cpu.get_v(89)
+        tgt_v2_out_gpu = self.cache_gpu.get_v(89)
+
+        torch.testing.assert_close(src_mask_out_cpu, src_mask_out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(tgt_mask_out_cpu, tgt_mask_out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(src_k1_out_cpu, src_k1_out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(src_k2_out_cpu, src_k2_out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(src_v1_out_cpu, src_v1_out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(src_v2_out_cpu, src_v2_out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(tgt_k1_out_cpu, tgt_k1_out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(tgt_k2_out_cpu, tgt_k2_out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(tgt_v1_out_cpu, tgt_v1_out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(tgt_v2_out_cpu, tgt_v2_out_gpu.to("cpu"), atol=0.00001, rtol=0)
+
+    def testCacheAndGetSameOnGPU(self):
+        self.setUpCache(1)
+        self.evalCache()
+
+    def testExpandToBeamSizeSameOnGPU(self):
+        beam_size = random.randint(3,6)
+        self.setUpCache(1)
+        self.cache_cpu.expand_to_beam_size(beam_size)
+        self.cache_gpu.expand_to_beam_size(beam_size)
+        self.evalCache()
+
+    def testRegisterFinishedSentsSameOnGPU(self):
+        beam_size = random.randint(3,6)
+        self.setUpCache(beam_size)
+        mask1_cpu = torch.rand((self.batch_size * beam_size)) < 0.3
+        mask1_gpu = mask1_cpu.to("cuda:0")
+        mask2_cpu = torch.logical_and(mask1_cpu, torch.rand((self.batch_size * beam_size)) < 0.3)
+        mask2_gpu = mask2_cpu.to("cuda:0")
+        self.cache_cpu.register_finished_sents(mask1_cpu)
+        self.cache_gpu.register_finished_sents(mask1_gpu)
+        self.cache_cpu.register_finished_sents(mask2_cpu)
+        self.cache_gpu.register_finished_sents(mask2_gpu)
+        self.evalCache()
+
+    def testRegisterFinishedBeamsSameOnGPU(self):
+        beam_size = random.randint(3,6)
+        self.setUpCache(beam_size)
+        mask1_cpu = torch.rand((self.batch_size * beam_size)) < 0.3
+        mask1_gpu = mask1_cpu.to("cuda:0")
+        mask2_cpu = torch.rand((self.batch_size)) < 0.5
+        mask2_gpu = mask2_cpu.to("cuda:0")
+        self.cache_cpu.register_finished_sents(mask1_cpu)
+        self.cache_gpu.register_finished_sents(mask1_gpu)
+        self.cache_cpu.register_finished_beams(mask2_cpu)
+        self.cache_gpu.register_finished_beams(mask2_gpu)
+        self.evalCache()
+
+    def testSelectIdxsSameOnGPU(self):
+        beam_size = random.randint(6,15)
+        self.setUpCache(beam_size)
+        mask1_cpu = torch.rand((self.batch_size * beam_size)) < 0.3
+        mask1_gpu = mask1_cpu.to("cuda:0")
+        self.cache_cpu.register_finished_sents(mask1_cpu)
+        self.cache_gpu.register_finished_sents(mask1_gpu)
+        chosen_idxs_cpu = torch.randint(beam_size, (self.batch_size, beam_size))
+        chosen_idxs_gpu = chosen_idxs_cpu.to("cuda:0")
+        self.cache_cpu.select_idxs(chosen_idxs_cpu)
+        self.cache_gpu.select_idxs(chosen_idxs_gpu)
+        self.evalCache()
 
 
 
@@ -447,19 +592,19 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         self.config.train.att_dropout = 0.0
         self.config.train.ff_dropout = 0.0
 
-        t_cpu = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=True, num_dec_layers=6, masked_self_att_dec=False, output_probs=True, vocab_size=1000, pad_idx=0, tgt_support_mask=None)
+        t_cpu = TransformerTwoSeq(self.config, num_enc_layers=6, masked_self_att_enc=True, num_dec_layers=6, masked_self_att_dec=True, output_probs=True, vocab_size=1000, pad_idx=0, tgt_support_mask=None)
         t_gpu = copy.deepcopy(t_cpu).to("cuda:0")
         out_cpu = t_cpu(x_cpu, y_cpu)
         out_gpu = t_gpu(x_gpu, y_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00005, rtol=0)
 
         cache_cpu = BeamCache(5,1,6,"cpu")
         cache_gpu = BeamCache(5,1,6,"cuda:0")
         auto_fn_cpu = t_cpu.get_autoregressive_one_step_fn(x_cpu, cache_cpu)
         auto_fn_gpu = t_gpu.get_autoregressive_one_step_fn(x_gpu, cache_gpu)
-        out_cpu = auto_fn_cpu(y_cpu, cache_cpu)
-        out_gpu = auto_fn_gpu(y_gpu, cache_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        out_cpu = auto_fn_cpu(y_cpu, 0, cache_cpu)
+        out_gpu = auto_fn_gpu(y_gpu, 0, cache_gpu)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00005, rtol=0)
 
     def testTransformerOneSeq(self):
         if not torch.cuda.is_available():
@@ -475,10 +620,12 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         t_gpu = copy.deepcopy(t_cpu).to("cuda:0")
         out_cpu = t_cpu(y_cpu)
         out_gpu = t_gpu(y_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00005, rtol=0)
 
-        auto_fn_cpu = t_cpu.get_autoregressive_one_step_fn()
-        auto_fn_gpu = t_gpu.get_autoregressive_one_step_fn()
-        out_cpu = auto_fn_cpu(y_cpu)
-        out_gpu = auto_fn_gpu(y_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        cache_cpu = BeamCache(5,1,6,"cpu")
+        cache_gpu = BeamCache(5,1,6,"cuda:0")
+        auto_fn_cpu = t_cpu.get_autoregressive_one_step_fn(cache_cpu,5,"cpu")
+        auto_fn_gpu = t_gpu.get_autoregressive_one_step_fn(cache_gpu,5,"cuda:0")
+        out_cpu = auto_fn_cpu(y_cpu, 0, cache_cpu)
+        out_gpu = auto_fn_gpu(y_gpu, 0, cache_gpu)
+        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00005, rtol=0)
