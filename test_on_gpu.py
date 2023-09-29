@@ -78,7 +78,7 @@ class TestTrainerSameOnGPU(unittest.TestCase):
 
 class MockModelDoesNothing:
     def get_autoregressive_one_step_fn(self, src, cache):
-        return 5
+        return 5, 6
 
 class MockCacheDoesNothing:
     def expand_to_beam_size(self, beam_size):
@@ -110,14 +110,18 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        def mock_autoregressive_fn(cumul_symbols, timestep, cache):
-            a_dist   = torch.tensor([0.0, 0.0, 0.5, 0.5, 0.0], device="cuda:0")
-            b_dist   = torch.tensor([0.0, 0.0, 0.5, 0.0, 0.5], device="cuda:0")
-            ab_dist  = torch.tensor([0.0, 0.0, 0.0, 0.5, 0.5], device="cuda:0")
-            all_dist = (cumul_symbols == 1).unsqueeze(1).type(torch.float) * ab_dist + \
-                       (cumul_symbols == 3).unsqueeze(1).type(torch.float) * a_dist + \
-                       (cumul_symbols == 4).unsqueeze(1).type(torch.float) * b_dist
-            return torch.log(all_dist)
+        def mock_autoregressive_fn(symbols, timestep, cache):
+            lh       = math.log(0.5)
+            ni       = float("-inf")
+            a_dist   = torch.tensor([[[ni, ni, lh, lh, ni]]])
+            b_dist   = torch.tensor([[[ni, ni, lh, ni, lh]]])
+            ab_dist  = torch.tensor([[[ni, ni, ni, lh, lh]]])
+            all_dist = torch.empty((symbols.size(0), 5))
+            all_dist[(symbols[:,-1] == 1)] = ab_dist
+            all_dist[(symbols[:,-1] == 3)] = a_dist
+            all_dist[(symbols[:,-1] == 4)] = b_dist
+            all_dist = all_dist.unsqueeze(1).to(symbols.device)
+            return all_dist, torch.log_softmax(all_dist, dim=-1)
 
         max_lengths = torch.tensor([40]*1000, device="cuda:0")
         symbols_out, probs_out = self.gen_gpu.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
@@ -136,11 +140,9 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
             return
 
         self.gen_cpu.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen_cpu.config.sampling_method = SamplingMethod.TOP_K
         self.gen_cpu.config.sampling_k = 5
 
         self.gen_gpu.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen_gpu.config.sampling_method = SamplingMethod.TOP_K
         self.gen_gpu.config.sampling_k = 5
 
         dist_cpu = torch.rand(5,6,50)
@@ -155,11 +157,9 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
             return
 
         self.gen_cpu.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen_cpu.config.sampling_method = SamplingMethod.TOP_P
         self.gen_cpu.config.sampling_p = 0.6
 
         self.gen_gpu.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen_gpu.config.sampling_method = SamplingMethod.TOP_P
         self.gen_gpu.config.sampling_p = 0.6
 
         dist_cpu = torch.nn.functional.softmax(torch.rand(5,6,50), dim=-1)
@@ -178,11 +178,17 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
 
         dist_cpu = torch.nn.functional.softmax(torch.rand(30,50), dim=-1)
         dist_gpu = dist_cpu.clone().cuda()
+        logits_cpu = torch.nn.functional.softmax(torch.rand(30,50), dim=-1)
+        logits_gpu = dist_cpu.clone().cuda()
 
         def auto_fn_cpu(symbols, timestep, cache):
-            return dist_cpu[0:symbols.size(0)].unsqueeze(1)
+            dist = dist_cpu[0:symbols.size(0)].unsqueeze(1)
+            logits = logits_cpu[0:symbols.size(0)].unsqueeze(1)
+            return logits, dist
         def auto_fn_gpu(symbols, timestep, cache):
-            return dist_gpu[0:symbols.size(0)].unsqueeze(1)
+            dist = dist_gpu[0:symbols.size(0)].unsqueeze(1)
+            logits = logits_gpu[0:symbols.size(0)].unsqueeze(1)
+            return logits, dist
 
         self.gen_cpu.vocab_size = 50
         self.gen_gpu.vocab_size = 50
@@ -576,9 +582,10 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         emb = get_embedding(self.config, 1000)
         ol_cpu = OutputLayer(emb, 1000, support_mask=None)
         ol_gpu = copy.deepcopy(ol_cpu).to("cuda:0")
-        out_cpu = ol_cpu(x_cpu)
-        out_gpu = ol_gpu(x_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00001, rtol=0)
+        logits_cpu, probs_cpu = ol_cpu(x_cpu)
+        logits_gpu, probs_gpu = ol_gpu(x_gpu)
+        torch.testing.assert_close(logits_cpu, logits_gpu.to("cpu"), atol=0.00001, rtol=0)
+        torch.testing.assert_close(probs_cpu, probs_gpu.to("cpu"), atol=0.00001, rtol=0)
 
     def testTransformerTwoSeq(self):
         if not torch.cuda.is_available():
@@ -602,9 +609,10 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         cache_gpu = BeamCache(5,1,6,"cuda:0")
         auto_fn_cpu = t_cpu.get_autoregressive_one_step_fn(x_cpu, cache_cpu)
         auto_fn_gpu = t_gpu.get_autoregressive_one_step_fn(x_gpu, cache_gpu)
-        out_cpu = auto_fn_cpu(y_cpu, 0, cache_cpu)
-        out_gpu = auto_fn_gpu(y_gpu, 0, cache_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00005, rtol=0)
+        logits_cpu, probs_cpu = auto_fn_cpu(y_cpu, 0, cache_cpu)
+        logits_gpu, probs_gpu = auto_fn_gpu(y_gpu, 0, cache_gpu)
+        torch.testing.assert_close(logits_cpu, logits_gpu.to("cpu"), atol=0.00005, rtol=0)
+        torch.testing.assert_close(probs_cpu, probs_gpu.to("cpu"), atol=0.00005, rtol=0)
 
     def testTransformerOneSeq(self):
         if not torch.cuda.is_available():
@@ -626,6 +634,7 @@ class TestTransformerSameOnGPU(unittest.TestCase):
         cache_gpu = BeamCache(5,1,6,"cuda:0")
         auto_fn_cpu = t_cpu.get_autoregressive_one_step_fn(cache_cpu,5,"cpu")
         auto_fn_gpu = t_gpu.get_autoregressive_one_step_fn(cache_gpu,5,"cuda:0")
-        out_cpu = auto_fn_cpu(y_cpu, 0, cache_cpu)
-        out_gpu = auto_fn_gpu(y_gpu, 0, cache_gpu)
-        torch.testing.assert_close(out_cpu, out_gpu.to("cpu"), atol=0.00005, rtol=0)
+        logits_cpu, probs_cpu = auto_fn_cpu(y_cpu, 0, cache_cpu)
+        logits_gpu, probs_gpu = auto_fn_gpu(y_gpu, 0, cache_gpu)
+        torch.testing.assert_close(logits_cpu, logits_gpu.to("cpu"), atol=0.00005, rtol=0)
+        torch.testing.assert_close(probs_cpu, probs_gpu.to("cpu"), atol=0.00005, rtol=0)

@@ -1,4 +1,3 @@
-# TODO(darcey): implement temperature for sampling
 # TODO(darcey): implement various length rewards for beam search
 # TODO(darcey): implement MBR
 # TODO(darcey): implement cluster search
@@ -7,9 +6,9 @@
 # TODO(darcey): implement diverse beam search
 # TODO(darcey): implement repetition constraints
 
+# TODO(darcey): consider having the transformer / beam manager return logits vs. probs selectively to save computation
 # TODO(darcey): when returning final samples and beam search results should I trim extra padding?
 # TODO(darcey): learn where torch uses a copy vs. view, and make sure I am using clone() in all/only the right places
-# TODO(darcey): consider whether to make top-p, top-k, and temperature usable at the same time
 # TODO(darcey): in sampling outer loop, should I move samples off GPU?
 # TODO(darcey): consider changing generate() to be a yield-style function, in order to accommodate extremely large numbers of samples where we need to print midway through
 # TODO(darcey): come up with a better return type for the generator -- an object? a dict?
@@ -18,7 +17,7 @@
 import warnings
 import copy
 import torch
-from configuration import DecodingMethod, SamplingMethod
+from configuration import DecodingMethod
 from beam_manager import BeamManager
 from cache import BeamCache
 
@@ -133,10 +132,10 @@ class Generator:
                 break
 
             # get relevant info for choosing the next timestep's tokens
-            next_token_probs, _ = beam_manager.compute_next_token_probs() # [batch, num_samples, V]
+            next_token_logits, _, _ = beam_manager.compute_next_token_probs()      # [batch, num_samples, V]
 
             # adjust probs as needed and sample next token
-            next_token_probs = torch.exp(next_token_probs)                         # [batch, num_samples, V]
+            next_token_probs = self.process_logits(next_token_logits)              # [batch, num_samples, V]
             next_token_probs = self.truncate_probs(next_token_probs)               # [batch, num_samples, V]
             curr_size = next_token_probs.size(0)
             next_token_probs = next_token_probs.reshape(curr_size*num_samples, -1) # [batch*num_samples, 1]
@@ -148,29 +147,36 @@ class Generator:
 
         return beam_manager.get_final()
 
+    # logits: [batch, num_samples, V]
+    # ret:    [batch, num_samples, V]
+    def process_logits(self, logits):
+        logits = logits / self.config.sampling_temp
+        return torch.nn.functional.softmax(logits, dim=-1)
+
     # probs: [batch, num_samples, V]
     # ret:   [batch, num_samples, V]
     def truncate_probs(self, probs):
-        match self.config.sampling_method:
-            case SamplingMethod.ANCESTRAL:
-                return probs
-            case SamplingMethod.TOP_K:
-                vals, idxs = torch.topk(probs, k=self.config.sampling_k, dim=-1)
-                trunc_probs = torch.zeros_like(probs)
-                trunc_probs.scatter_(dim=-1, index=idxs, src=vals)
-                return trunc_probs
-            # Based on Ari Holtzman's implementation
-            # https://github.com/ari-holtzman/degen/blob/master/gen.py
-            case SamplingMethod.TOP_P:
-                vals, idxs = torch.sort(probs, dim=-1, descending=True)
-                cum_vals = torch.cumsum(vals, dim=-1)
-                to_remove = cum_vals > self.config.sampling_p
-                to_remove[:,:,1:] = to_remove[:,:,:-1].clone()
-                to_remove[:,:,0] = False
-                vals[to_remove] = 0.0
-                trunc_probs = torch.empty_like(probs)
-                trunc_probs.scatter_(dim=-1, index=idxs, src=vals)
-                return trunc_probs
+        # If not doing top-p or top-k, this is a no-op
+        if (self.config.sampling_p == 1.0) and (self.config.sampling_k <= 0):
+            return probs
+
+        # Based on Ari Holtzman's implementation
+        # https://github.com/ari-holtzman/degen/blob/master/gen.py
+        vals, idxs = torch.sort(probs, dim=-1, descending=True)
+        cum_vals = torch.cumsum(vals, dim=-1)
+        to_remove_p = cum_vals >= self.config.sampling_p
+        to_remove_p[:,:,1:] = to_remove_p[:,:,:-1].clone()
+        to_remove_p[:,:,0] = False
+        to_remove_k = torch.zeros_like(to_remove_p)
+        k = probs.size(-1)
+        if self.config.sampling_k > 0:
+            k = min(k, self.config.sampling_k)
+        to_remove_k[:,:,k:] = True
+        to_remove = to_remove_p + to_remove_k
+        vals[to_remove] = 0.0
+        trunc_probs = torch.empty_like(probs)
+        trunc_probs.scatter_(dim=-1, index=idxs, src=vals)
+        return trunc_probs
 
     # max_lengths: [batch_size]
     # ret_symbols: [batch_size, beam_size, tgt_len]
@@ -210,7 +216,7 @@ class Generator:
 
             # tell the beam manager to extend the beams by one token,
             # and return the probabilities of all the possible new beams
-            next_token_probs, all_choices_cumulative_probs = beam_manager.compute_next_token_probs() # [batch, beam, vocab]
+            _, next_token_probs, all_choices_cumulative_probs = beam_manager.compute_next_token_probs() # [batch, beam, vocab]
 
             # modify the beams' probs as needed
             if time_step == 0 and not self.config.allow_empty_string:

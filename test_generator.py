@@ -1,14 +1,14 @@
 import math
 import torch
 import unittest
-from configuration import read_config, DecodingMethod, SamplingMethod
+from configuration import read_config, DecodingMethod
 from generator import *
 
 
 
 class MockModelDoesNothing:
     def get_autoregressive_one_step_fn(self, src, cache):
-        return 5
+        return 5, 6
 
 class MockCacheDoesNothing:
     def expand_to_beam_size(self, beam_size):
@@ -163,14 +163,18 @@ class TestSampling(unittest.TestCase):
 
     def testSampleSimpleDistribution1(self):
         # At beginning, splits off into two possibilities: all as or all bs.
-        def mock_autoregressive_fn(cumul_symbols, timestep, cache):
-            a_dist   = torch.tensor([[[0.0, 0.0, 0.5, 0.5, 0.0]]])
-            b_dist   = torch.tensor([[[0.0, 0.0, 0.5, 0.0, 0.5]]])
-            ab_dist  = torch.tensor([[[0.0, 0.0, 0.0, 0.5, 0.5]]])
-            all_dist = (cumul_symbols == 1).unsqueeze(-1).type(torch.float) * ab_dist + \
-                       (cumul_symbols == 3).unsqueeze(-1).type(torch.float) * a_dist + \
-                       (cumul_symbols == 4).unsqueeze(-1).type(torch.float) * b_dist
-            return torch.log(all_dist)
+        def mock_autoregressive_fn(symbols, timestep, cache):
+            lh       = math.log(0.5)
+            ni       = float("-inf")
+            a_dist   = torch.tensor([[[ni, ni, lh, lh, ni]]])
+            b_dist   = torch.tensor([[[ni, ni, lh, ni, lh]]])
+            ab_dist  = torch.tensor([[[ni, ni, ni, lh, lh]]])
+            all_dist = torch.empty((symbols.size(0), 5))
+            all_dist[(symbols[:,-1] == 1)] = ab_dist
+            all_dist[(symbols[:,-1] == 3)] = a_dist
+            all_dist[(symbols[:,-1] == 4)] = b_dist
+            all_dist = all_dist.unsqueeze(1)
+            return all_dist, torch.log_softmax(all_dist, dim=-1)
 
         max_lengths = torch.tensor([40]*1000)
         symbols_out, probs_out = self.gen.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
@@ -187,13 +191,17 @@ class TestSampling(unittest.TestCase):
     def testSampleSimpleDistribution2(self):
         # Generates strings which alternate between as and bs
         # Always starts with an a, ends with a b
-        def mock_autoregressive_fn(cumul_symbols, timestep, cache):
-            a_dist   = torch.tensor([[[0.0, 0.0, 0.5, 0.5, 0.0]]])
-            b_dist   = torch.tensor([[[0.0, 0.0, 0.0, 0.0, 1.0]]])
-            all_dist = (cumul_symbols == 1).unsqueeze(-1).type(torch.float) * a_dist + \
-                       (cumul_symbols == 3).unsqueeze(-1).type(torch.float) * b_dist + \
-                       (cumul_symbols == 4).unsqueeze(-1).type(torch.float) * a_dist
-            return torch.log(all_dist)
+        def mock_autoregressive_fn(symbols, timestep, cache):
+            lh       = math.log(0.5)
+            ni       = float("-inf")
+            a_dist   = torch.tensor([[[ni, ni, lh, lh, ni]]])
+            b_dist   = torch.tensor([[[ni, ni, ni, ni, 0.0]]])
+            all_dist = torch.empty((symbols.size(0), 5))
+            all_dist[(symbols[:,-1] == 1)] = a_dist
+            all_dist[(symbols[:,-1] == 3)] = b_dist
+            all_dist[(symbols[:,-1] == 4)] = a_dist
+            all_dist = all_dist.unsqueeze(1)
+            return all_dist, torch.log_softmax(all_dist, dim=-1)
 
         max_lengths = torch.tensor([40]*1000)
         symbols_out, probs_out = self.gen.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
@@ -207,22 +215,39 @@ class TestSampling(unittest.TestCase):
         self.assertAlmostEqual((num_as == 0).sum()/5000, 0.5, delta=0.02)
         self.assertAlmostEqual((num_as == 1).sum()/5000, 0.25, delta=0.02)
 
+    def testTemperature(self):
+        lh   = math.log(0.5)
+        l1   = math.log(1.0)
+        ni   = float("-inf")
+        dist = torch.tensor([[[ni, ni, 2*lh, 2*lh, 2*l1]]])
+        dist_correct = torch.tensor([[[0.0, 0.0, 0.25, 0.25, 0.5]]])
+        self.gen.config.sampling_temp = 2.0
+        dist_out = self.gen.process_logits(dist)
+        self.assertTrue(torch.equal(dist_out, dist_correct))
+
     def testTopK(self):
-        dist = torch.tensor([1.0, 3.0, 5.0, 7.0, 9.0, 0.5, 2.0, 4.0, 6.0, 8.0])
+        dist = torch.tensor([0.01, 0.03, 0.09, 0.07, 0.55, 0.05, 0.02, 0.04, 0.06, 0.08])
         dist = dist.unsqueeze(0).unsqueeze(0)
 
         self.gen.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen.config.sampling_method = SamplingMethod.TOP_K
-        self.gen.config.sampling_k = 5
-        dist_correct = torch.tensor([0.0, 0.0, 5.0, 7.0, 9.0, 0.0, 0.0, 0.0, 6.0, 8.0])
+        self.gen.config.sampling_k = 4
+        dist_correct = torch.tensor([0.0, 0.0, 0.09, 0.07, 0.55, 0.0, 0.0, 0.0, 0.0, 0.08])
         dist_correct = dist_correct.unsqueeze(0).unsqueeze(0)
 
         dist_out = self.gen.truncate_probs(dist)
         self.assertTrue(torch.equal(dist_out, dist_correct))
 
+    def testTopKLargerThanVocab(self):
+        dist = torch.softmax(torch.rand(4,5,10), dim=-1)
+
+        self.gen.config.decoding_method = DecodingMethod.SAMPLING
+        self.gen.config.sampling_k = 15
+
+        dist_out = self.gen.truncate_probs(dist)
+        self.assertTrue(torch.equal(dist_out, dist))
+
     def testTopP(self):
         self.gen.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen.config.sampling_method = SamplingMethod.TOP_P
 
         # No matter what the distribution is, p = 1.0 should just return it.
         self.gen.config.sampling_p = 1.0
@@ -234,12 +259,28 @@ class TestSampling(unittest.TestCase):
         self.gen.config.sampling_p = 0.6
         dist = torch.tensor([[[0.26, 0.1, 0.2,  0.03, 0.05, 0.02, 0.3,  0.04],
                               [0.08, 0.5, 0.02, 0.25, 0.05, 0.04, 0.03, 0.03]],
-                             [[0.3,  0.0, 0.01, 0.02, 0.4,  0.03, 0.2,  0.04],
+                             [[0.3,  0.0, 0.11, 0.02, 0.3,  0.03, 0.2,  0.04],
                               [0.1,  0.3, 0.2,  0.15, 0.05, 0.25, 0.02, 0.03]]])
         dist_correct = torch.tensor([[[0.26, 0.0, 0.2, 0.0,  0.0, 0.0,  0.3, 0.0],
                                       [0.0 , 0.5, 0.0, 0.25, 0.0, 0.0,  0.0, 0.0]],
-                                     [[0.3,  0.0, 0.0, 0.0,  0.4, 0.0,  0.0, 0.0],
+                                     [[0.3,  0.0, 0.0, 0.0,  0.3, 0.0,  0.0, 0.0],
                                       [0.0,  0.3, 0.2, 0.0,  0.0, 0.25, 0.0, 0.0]]])
+        dist_out = self.gen.truncate_probs(dist)
+        self.assertTrue(torch.equal(dist_out, dist_correct))
+
+    def testTopPAndK(self):
+        self.gen.config.decoding_method = DecodingMethod.SAMPLING
+
+        self.gen.config.sampling_p = 0.6
+        self.gen.config.sampling_k = 3
+        dist = torch.tensor([[[0.26, 0.1, 0.2,  0.03, 0.05, 0.02, 0.3,  0.04],
+                              [0.08, 0.5, 0.02, 0.25, 0.05, 0.04, 0.03, 0.03]],
+                             [[0.3,  0.0, 0.11, 0.02, 0.3,  0.03, 0.2,  0.04],
+                              [0.02, 0.3, 0.15, 0.12, 0.11, 0.1,  0.1,  0.1]]])
+        dist_correct = torch.tensor([[[0.26, 0.0, 0.2,  0.0,  0.0, 0.0, 0.3, 0.0],
+                                      [0.0 , 0.5, 0.0,  0.25, 0.0, 0.0, 0.0, 0.0]],
+                                     [[0.3,  0.0, 0.0,  0.0,  0.3, 0.0, 0.0, 0.0],
+                                      [0.0,  0.3, 0.15, 0.12, 0.0, 0.0, 0.0, 0.0]]])
         dist_out = self.gen.truncate_probs(dist)
         self.assertTrue(torch.equal(dist_out, dist_correct))
 
@@ -270,7 +311,7 @@ class TestBeamSearch(unittest.TestCase):
             all_dist = (cumul_symbols == 1).unsqueeze(-1).type(torch.float) * dist1 + \
                        (cumul_symbols == 3).unsqueeze(-1).type(torch.float) * dist2 + \
                        (cumul_symbols == 4).unsqueeze(-1).type(torch.float) * dist3
-            return torch.log(all_dist)
+            return torch.rand(all_dist.size()), torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*2)
         symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
@@ -305,7 +346,7 @@ class TestBeamSearch(unittest.TestCase):
             all_dist = (cumul_symbols == 1).unsqueeze(-1).type(torch.float) * dist1 + \
                        (cumul_symbols == 3).unsqueeze(-1).type(torch.float) * dist2 + \
                        (cumul_symbols == 4).unsqueeze(-1).type(torch.float) * dist3
-            return torch.log(all_dist)
+            return torch.rand(all_dist.size()), torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*2)
         symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
@@ -338,7 +379,7 @@ class TestBeamSearch(unittest.TestCase):
             all_dist = (cumul_symbols == 1).unsqueeze(-1).type(torch.float) * dist1 + \
                        (cumul_symbols == 3).unsqueeze(-1).type(torch.float) * dist2 + \
                        (cumul_symbols == 4).unsqueeze(-1).type(torch.float) * dist3
-            return torch.log(all_dist)
+            return torch.rand(all_dist.size()), torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*2)
 

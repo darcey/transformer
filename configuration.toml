@@ -85,8 +85,8 @@ abs_max_len            = 300
 # Decoding method
 decoding_method        = "Beam_Search"
 # Sampling params
-sampling_method        = "Ancestral"
-sampling_k             = 10
-sampling_p             = 0.9
+sampling_k             = 0
+sampling_p             = 1.0
+sampling_temp          = 1.0
 # Beam search params
 allow_empty_string     = true

@@ -49,11 +49,6 @@ class DecodingMethod(Enum):
     SAMPLING = "Sampling"
     BEAM_SEARCH = "Beam_Search"
 
-class SamplingMethod(Enum):
-    ANCESTRAL   = "Ancestral"
-    TOP_K       = "Top_k"
-    TOP_P       = "Top_p"
-
 def read_config(filename):
     with open(filename) as config_file:
         config_dict = toml.load(config_file)
@@ -71,7 +66,6 @@ def read_config(filename):
     
     config_gen = Namespace(**config_dict["generation"])
     config_gen.decoding_method = DecodingMethod(config_gen.decoding_method)
-    config_gen.sampling_method = SamplingMethod(config_gen.sampling_method)
 
     config = Namespace()
     config.arch = config_arch

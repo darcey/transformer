@@ -5,7 +5,7 @@ from beam_manager import *
 
 
 def mock_auto_fn_does_nothing(symbols, timestep, cache):
-    return 5
+    return 5, 6
 
 class MockCacheDoesNothing:
     def expand_to_beam_size(self, beam_size):
@@ -254,7 +254,7 @@ class TestBeamManager(unittest.TestCase):
             is3 = (active_symbols == 3).type(torch.int).unsqueeze(-1)
             is4 = (active_symbols == 4).type(torch.int).unsqueeze(-1)
             probs = is3 * probs3 + is4 * probs4
-            return probs
+            return torch.rand(probs.size()), probs
 
         bm = BeamManager(batch_size=4,
                          beam_size=3,
@@ -295,7 +295,7 @@ class TestBeamManager(unittest.TestCase):
                                                   [[10.5, 10.6, 10.7, 10.8, 10.9],
                                                    [11.5, 11.6, 11.7, 11.8, 11.9],
                                                    [12.5, 12.6, 12.7, 12.8, 12.9]]])
-        next_token_probs_out, all_choices_probs_out = bm.compute_next_token_probs()
+        _, next_token_probs_out, all_choices_probs_out = bm.compute_next_token_probs()
         self.assertTrue(torch.equal(next_token_probs_out, next_token_probs_correct))
         self.assertTrue(torch.equal(all_choices_probs_out, all_choices_probs_correct))
 
@@ -328,7 +328,7 @@ class TestBeamManager(unittest.TestCase):
             is3 = (active_symbols == 3).type(torch.int).unsqueeze(-1)
             is4 = (active_symbols == 4).type(torch.int).unsqueeze(-1)
             probs = is3 * probs3 + is4 * probs4
-            return probs
+            return torch.rand(probs.size()), probs
 
         bm = BeamManager(batch_size=4,
                          beam_size=3,
@@ -370,7 +370,7 @@ class TestBeamManager(unittest.TestCase):
                                                   [[10.5, 10.6, 10.7, 10.8, 10.9],
                                                    [11.5, 11.6, 11.7, 11.8, 11.9],
                                                    [12.0, ni, ni, ni, ni]]])
-        next_token_probs_out, all_choices_probs_out = bm.compute_next_token_probs()
+        _, next_token_probs_out, all_choices_probs_out = bm.compute_next_token_probs()
         self.assertTrue(torch.equal(next_token_probs_out, next_token_probs_correct))
         self.assertTrue(torch.equal(all_choices_probs_out, all_choices_probs_correct))
 

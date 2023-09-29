@@ -509,20 +509,21 @@ class TestOutputLayer(unittest.TestCase):
     def testShape(self):
         ol = OutputLayer(self.emb, vocab_size=5, support_mask=None)
         x = torch.rand(10,6,4)
-        out = ol(x)
-        self.assertEqual(out.shape, (10,6,5))
+        logits, probs = ol(x)
+        self.assertEqual(logits.shape, (10,6,5))
+        self.assertEqual(probs.shape, (10,6,5))
 
     def testSupportMask(self):
         support_mask = torch.tensor([1.0, 1.0, 0.0, 1.0, 0.0])
         ol = OutputLayer(self.emb, vocab_size=5, support_mask=support_mask)
         x = torch.rand(10,6,4)
-        out = ol(x)
+        _, probs = ol(x)
 
-        self.assertTrue(out[0,0,0] > float('-inf'))
-        self.assertTrue(out[0,0,1] > float('-inf'))
-        self.assertTrue(out[0,0,2] == float('-inf'))
-        self.assertTrue(out[0,0,3] > float('-inf'))
-        self.assertTrue(out[0,0,4] == float('-inf'))
+        self.assertTrue(probs[0,0,0] > float('-inf'))
+        self.assertTrue(probs[0,0,1] > float('-inf'))
+        self.assertTrue(probs[0,0,2] == float('-inf'))
+        self.assertTrue(probs[0,0,3] > float('-inf'))
+        self.assertTrue(probs[0,0,4] == float('-inf'))
 
 
 
@@ -634,8 +635,10 @@ class TestTransformer(unittest.TestCase):
 
 
 class TestCachedAutoregressiveDecoding(unittest.TestCase):
+
     def setUp(self):
         self.config = read_config("configuration.toml")
+
     def testTwoSeqAutoregressive(self):
         self.config.train.dropout = 0.0
         self.config.train.ff_dropout = 0.0
@@ -651,7 +654,7 @@ class TestCachedAutoregressiveDecoding(unittest.TestCase):
         auto_fn = t.get_autoregressive_one_step_fn(x, cache)
         out2 = torch.empty(8,0,30)
         for i in range(0,20):
-            out2_one_symb = auto_fn(y[:,i:i+1], i, cache)
+            _, out2_one_symb = auto_fn(y[:,i:i+1], i, cache)
             out2 = torch.cat((out2, out2_one_symb), dim=1)
 
         torch.testing.assert_close(out1, out2, atol=0.00002, rtol=0)
@@ -671,10 +674,11 @@ class TestCachedAutoregressiveDecoding(unittest.TestCase):
         auto_fn = t.get_autoregressive_one_step_fn(x, cache)
         out2 = torch.empty(8,0,30)
         for i in range(0,20,2):
-            out2_one_symb = auto_fn(y[:,i:i+2], i, cache)
+            _, out2_one_symb = auto_fn(y[:,i:i+2], i, cache)
             out2 = torch.cat((out2, out2_one_symb), dim=1)
 
         torch.testing.assert_close(out1, out2, atol=0.00002, rtol=0)
+
     def testOneSeqAutoregressive(self):
         self.config.train.dropout = 0.0
         self.config.train.ff_dropout = 0.0
@@ -689,7 +693,7 @@ class TestCachedAutoregressiveDecoding(unittest.TestCase):
         auto_fn = t.get_autoregressive_one_step_fn(cache, 8, "cpu")
         out2 = torch.empty(8,0,30)
         for i in range(0,20):
-            out2_one_symb = auto_fn(y[:,i:i+1], i, cache)
+            _, out2_one_symb = auto_fn(y[:,i:i+1], i, cache)
             out2 = torch.cat((out2, out2_one_symb), dim=1)
 
         torch.testing.assert_close(out1, out2, atol=0.00002, rtol=0)
@@ -708,7 +712,7 @@ class TestCachedAutoregressiveDecoding(unittest.TestCase):
         auto_fn = t.get_autoregressive_one_step_fn(cache, 8, "cpu")
         out2 = torch.empty(8,0,30)
         for i in range(0,20,2):
-            out2_one_symb = auto_fn(y[:,i:i+2], i, cache)
+            _, out2_one_symb = auto_fn(y[:,i:i+2], i, cache)
             out2 = torch.cat((out2, out2_one_symb), dim=1)
 
         torch.testing.assert_close(out1, out2, atol=0.00002, rtol=0)

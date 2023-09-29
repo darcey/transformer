@@ -397,7 +397,7 @@ class OutputLayer(torch.nn.Module):
         logits = self.embedding(seq, reverse=True)
         logits_masked = logits + self.support_mask
         probs = torch.nn.functional.log_softmax(logits_masked, dim=-1)
-        return probs
+        return logits_masked, probs
 
 
 
@@ -497,7 +497,7 @@ class TransformerTwoSeq(torch.nn.Module):
         tgt_input  = self.dropout(tgt_embed)
         tgt_output = self.decoder(tgt_input, tgt_pad_mask, src_output, src_pad_mask)
         if self.output_probs:
-            tgt_output = self.output(tgt_output)
+            _, tgt_output = self.output(tgt_output)
         return tgt_output
 
     # src: [batch, src_seq]
@@ -531,11 +531,11 @@ class TransformerTwoSeq(torch.nn.Module):
             tgt_pad_mask = torch.cat((cache.get_tgt_mask(), get_pad_mask(tgt, self.pad_idx)), dim=-1)
             cache.cache_tgt_mask(tgt_pad_mask)
 
-            tgt_embed    = self.input(tgt, timestep)
-            tgt_input    = self.dropout(tgt_embed)
-            tgt_output   = self.decoder(tgt_input, tgt_pad_mask, prev_mask=src_pad_mask, cache=cache)
-            tgt_probs    = self.output(tgt_output)
-            return tgt_probs
+            tgt_embed  = self.input(tgt, timestep)
+            tgt_input  = self.dropout(tgt_embed)
+            tgt_output = self.decoder(tgt_input, tgt_pad_mask, prev_mask=src_pad_mask, cache=cache)
+            tgt_logits, tgt_probs = self.output(tgt_output)
+            return tgt_logits, tgt_probs
 
         return run_decoder_for_one_step
 
@@ -567,7 +567,7 @@ class TransformerOneSeq(torch.nn.Module):
         seq_input  = self.dropout(seq_embed)
         seq_output = self.xxcoder(seq_input, pad_mask)
         if self.output_probs:
-            seq_output = self.output(seq_output)
+            _, seq_output = self.output(seq_output)
         return seq_output
 
     # note: this currently looks just like the forward function
@@ -591,7 +591,7 @@ class TransformerOneSeq(torch.nn.Module):
             seq_embed  = self.input(seq, timestep)
             seq_input  = self.dropout(seq_embed)
             seq_output = self.xxcoder(seq_input, pad_mask, cache=cache)
-            seq_probs  = self.output(seq_output)
-            return seq_probs
+            seq_logits, seq_probs = self.output(seq_output)
+            return seq_logits, seq_probs
 
         return run_model_for_one_step

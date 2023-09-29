@@ -109,18 +109,26 @@ class BeamManager:
         last_symbols = self.symbols[:, :, -1].reshape(-1)                       # [batch*beam]
         finished_mask = (last_symbols == self.eos) + (last_symbols == self.pad) # [batch*beam]
         if finished_mask.any():
+            next_token_logits = torch.full((self.curr_size*self.beam_size, self.vocab_size),
+                                           float("-inf"), device=self.device)               # [batch*beam, vocab]
             next_token_probs = torch.full((self.curr_size*self.beam_size, self.vocab_size),
                                           float("-inf"), device=self.device)                # [batch*beam, vocab]
             active_symbols = self.symbols.reshape(-1, self.seq_len)[~finished_mask]         # [batch*beam, seq_len]
             self.cache.register_finished_sents(finished_mask)
-            next_token_probs[~finished_mask] = self.auto_fn(active_symbols[:,-1:], self.seq_len-1, self.cache)[:,-1,:]
+            active_logits, active_probs = self.auto_fn(active_symbols[:,-1:], self.seq_len-1, self.cache)
+            next_token_logits[~finished_mask] = active_logits[:,-1,:]
+            next_token_logits[finished_mask,self.pad] = 0.0
+            next_token_probs[~finished_mask] = active_probs[:,-1,:]
             next_token_probs[finished_mask,self.pad] = 0.0
         else:
-            next_token_probs = self.auto_fn(self.symbols.reshape(-1, self.seq_len)[:,-1:], self.seq_len-1, self.cache)[:,-1,:] # [batch*beam, vocab] # [batch*beam, vocab]
+            next_token_logits, next_token_probs = self.auto_fn(self.symbols.reshape(-1, self.seq_len)[:,-1:], self.seq_len-1, self.cache) # [batch*beam, seq_len, vocab]
+            next_token_logits = next_token_logits[:,-1,:] # [batch*beam, vocab]
+            next_token_probs = next_token_probs[:,-1,:]   # [batch*beam, vocab]
 
-        self.next_token_probs = next_token_probs.reshape(self.curr_size, self.beam_size, self.vocab_size) # [batch, beam, vocab]
-        self.all_choices_probs = self.probs.unsqueeze(-1) + self.next_token_probs                         # [batch, beam, vocab]
-        return self.next_token_probs.clone(), self.all_choices_probs.clone()
+        next_token_logits = next_token_logits.reshape(self.curr_size, self.beam_size, self.vocab_size) # [batch, beam, vocab]
+        next_token_probs = next_token_probs.reshape(self.curr_size, self.beam_size, self.vocab_size)   # [batch, beam, vocab]
+        self.all_choices_probs = self.probs.unsqueeze(-1) + next_token_probs                           # [batch, beam, vocab]
+        return next_token_logits, next_token_probs, self.all_choices_probs.clone()
 
     # Assumes that for each original beam item, exactly one successor is
     # chosen (meaning there is no intermixing of the different items in
