@@ -17,7 +17,7 @@
 import warnings
 import copy
 import torch
-from configuration import DecodingMethod
+from configuration import DecodingMethod, LengthNormalization
 from beam_manager import BeamManager
 from cache import BeamCache
 
@@ -221,6 +221,7 @@ class Generator:
             # modify the beams' probs as needed
             if time_step == 0 and not self.config.allow_empty_string:
                 all_choices_cumulative_probs[:,:,self.eos] = float("-inf")
+            all_choices_cumulative_probs = self.length_normalize(beam_manager, all_choices_cumulative_probs)
 
             # for finished sentences (e.g. ones that end in PAD),
             # the beam manager will set the next token log probability
@@ -249,10 +250,17 @@ class Generator:
             time_step += 1
 
         symbols, probs = beam_manager.get_final()
-        # There should only be -infs in the beam if the beam size k
-        # was larger than the number of sentneces n in the language.
-        # If so the content of these -infs will just be random noise.
-        # Set them to PAD for increased clarity.
-        neg_inf = (probs == float("-inf"))
-        symbols[neg_inf] = self.pad
         return symbols[:,0,:].clone(), symbols, probs
+
+    def length_normalize(self, beam_manager, log_probs):
+        if self.config.length_normalization == LengthNormalization.NONE:
+            return log_probs
+
+        lengths = beam_manager.get_all_choices_lengths()
+        if self.config.length_normalization == LengthNormalization.LENGTH_REWARD:
+            return log_probs + lengths * self.config.length_reward_gamma
+        elif self.config.length_normalization == LengthNormalization.LENGTH_NORM:
+            return log_probs / lengths
+        elif self.config.length_normalization == LengthNormalization.GOOGLE_METHOD:
+            alpha = self.config.length_norm_alpha
+            return log_probs / ((5.0 + lengths) ** alpha / 6.0 ** alpha)

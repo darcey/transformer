@@ -96,11 +96,26 @@ class BeamManager:
         ret_probs   = torch.stack(self.ret_probs)
         return ret_symbols, ret_probs
 
+    # Compute the lengths of all the one-token extensions of the beam items.
+    # Should be called after compute_next_token_probs
+    # lengths: [batch, beam, vocab]
+    def get_all_choices_lengths(self):
+        lengths = self.seq_len - (self.symbols == self.eos).sum(-1) - (self.symbols == self.pad).sum(-1)
+        finished = lengths < self.seq_len
+        end_toks = torch.zeros(self.vocab_size, dtype=torch.bool, device=self.symbols.device)
+        end_toks[self.pad] = True
+        end_toks[self.eos] = True
+        still_not_finished = ~finished.unsqueeze(-1) * ~end_toks
+        all_choices_lengths = lengths.unsqueeze(-1).expand(-1, -1, self.vocab_size).clone()
+        all_choices_lengths[still_not_finished] = all_choices_lengths[still_not_finished] + 1
+        return all_choices_lengths
+
     # Make a call to the underlying model to get the next token
     # probabilities for each item in the beam. Use these to compute
     # what the cumulative probability would be for every expansion
     # of every beam. Return these so that the decoding algorithm can
     # make its choices.
+    # next_token_logits: [batch, beam, vocab]
     # next_token_probs:  [batch, beam, vocab]
     # all_choices_probs: [batch, beam, vocab]
     def compute_next_token_probs(self):

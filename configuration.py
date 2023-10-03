@@ -49,6 +49,12 @@ class DecodingMethod(Enum):
     SAMPLING = "Sampling"
     BEAM_SEARCH = "Beam_Search"
 
+class LengthNormalization(Enum):
+    NONE = "None"
+    LENGTH_REWARD = "Length_Reward"
+    LENGTH_NORM = "Length_Normalization"
+    GOOGLE_METHOD = "Google_Method"
+
 def read_config(filename):
     with open(filename) as config_file:
         config_dict = toml.load(config_file)
@@ -66,6 +72,7 @@ def read_config(filename):
     
     config_gen = Namespace(**config_dict["generation"])
     config_gen.decoding_method = DecodingMethod(config_gen.decoding_method)
+    config_gen.length_normalization = LengthNormalization(config_gen.length_normalization)
 
     config = Namespace()
     config.arch = config_arch

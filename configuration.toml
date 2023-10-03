@@ -90,3 +90,6 @@ sampling_p             = 1.0
 sampling_temp          = 1.0
 # Beam search params
 allow_empty_string     = true
+length_normalization   = "None"
+length_reward_gamma    = 0.0
+length_norm_alpha      = 0.0

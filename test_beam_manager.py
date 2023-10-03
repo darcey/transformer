@@ -231,6 +231,49 @@ class TestBeamManager(unittest.TestCase):
         self.assertTrue(torch.equal(symbols_out, symbols_correct))
         self.assertTrue(torch.equal(probs_out, probs_correct))
 
+    def testGetAllChoicesLengths(self):
+        symbols = torch.tensor([[[1,3,4,2],
+                                 [1,4,2,0],
+                                 [1,4,4,3]],
+                                [[1,4,3,3],
+                                 [1,3,3,3],
+                                 [1,3,3,2]],
+                                [[1,2,0,0],
+                                 [1,3,2,0],
+                                 [1,4,3,2]],
+                                [[1,4,4,2],
+                                 [1,2,0,0],
+                                 [1,3,3,4]]])
+
+        bm = BeamManager(batch_size=4,
+                         beam_size=3,
+                         vocab_size=5,
+                         max_lengths=torch.tensor([10,10,10,10]),
+                         max_possible_length=10,
+                         pad=0,
+                         bos=1,
+                         eos=2,
+                         autoregressive_fn = mock_auto_fn_does_nothing,
+                         cache = MockCacheDoesNothing(),
+                         device = "cpu")
+        bm.symbols = symbols
+        bm.seq_len = 4
+
+        lengths_correct = torch.tensor([[[3,3,3,3,3],
+                                         [2,2,2,2,2],
+                                         [4,5,4,5,5]],
+                                        [[4,5,4,5,5],
+                                         [4,5,4,5,5],
+                                         [3,3,3,3,3]],
+                                        [[1,1,1,1,1],
+                                         [2,2,2,2,2],
+                                         [3,3,3,3,3]],
+                                        [[3,3,3,3,3],
+                                         [1,1,1,1,1],
+                                         [4,5,4,5,5]]])
+        lengths_out = bm.get_all_choices_lengths()
+        self.assertTrue(torch.equal(lengths_out, lengths_correct))
+
     def testComputeNextTokenProbsNoFinished(self):
         symbols = torch.tensor([[[1,3,3,3],
                                  [1,3,3,3],

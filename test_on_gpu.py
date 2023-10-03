@@ -7,7 +7,7 @@ import torch
 import torch.testing
 import unittest
 from tempfile import TemporaryDirectory
-from configuration import read_config
+from configuration import read_config, DecodingMethod, LengthNormalization
 from trainer import *
 from vocabulary import *
 from generator import *
@@ -175,6 +175,8 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
 
         self.gen_cpu.config.decoding_method = DecodingMethod.BEAM_SEARCH
         self.gen_gpu.config.decoding_method = DecodingMethod.BEAM_SEARCH
+        self.gen_cpu.config.length_normalization = LengthNormalization.GOOGLE_METHOD
+        self.gen_gpu.config.length_normalization = LengthNormalization.GOOGLE_METHOD
 
         dist_cpu = torch.nn.functional.softmax(torch.rand(30,50), dim=-1)
         dist_gpu = dist_cpu.clone().cuda()

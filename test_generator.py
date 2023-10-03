@@ -1,7 +1,7 @@
 import math
 import torch
 import unittest
-from configuration import read_config, DecodingMethod
+from configuration import read_config, DecodingMethod, LengthNormalization
 from generator import *
 
 
@@ -426,3 +426,98 @@ class TestBeamSearch(unittest.TestCase):
         self.assertTrue(torch.equal(symbols_final_out, symbols_final_correct))
         self.assertTrue(torch.equal(symbols_all_out, symbols_all_correct))
         self.assertTrue(torch.equal(probs_all_out, torch.log(probs_all_correct)))
+
+    def testLengthNormalization(self):
+        # Not used, but the lengths and probs are based on this,
+        # so I include it for reference.
+        symbols = torch.tensor([[[1,3,4,2],
+                                 [1,4,2,0],
+                                 [1,4,4,3]],
+                                [[1,4,3,3],
+                                 [1,3,3,3],
+                                 [1,3,3,2]],
+                                [[1,2,0,0],
+                                 [1,3,2,0],
+                                 [1,4,3,2]],
+                                [[1,4,4,2],
+                                 [1,2,0,0],
+                                 [1,3,3,4]]])
+
+        ni = float("-inf")
+        log_probs = torch.tensor([[[-6.0, ni, ni, ni, ni],
+                                   [-3.0, ni, ni, ni, ni],
+                                   [ni, ni, -1.0, -2.0, -3.0]],
+                                  [[ni, ni, -4.0, -5.0, -6.0],
+                                   [ni, ni, -7.0, -8.0, -9.0],
+                                   [-1.0, ni, ni, ni, ni]],
+                                  [[-4.0, ni, ni, ni, ni],
+                                   [-2.0, ni, ni, ni, ni],
+                                   [-5.0, ni, ni, ni, ni]],
+                                  [[-7.0, ni, ni, ni, ni],
+                                   [-8.0, ni, ni, ni, ni],
+                                   [ni, ni, -10.0, -11.0, -12.0]]])
+        lengths = torch.tensor([[[3,3,3,3,3],
+                                 [2,2,2,2,2],
+                                 [4,5,4,5,5]],
+                                [[4,5,4,5,5],
+                                 [4,5,4,5,5],
+                                 [3,3,3,3,3]],
+                                [[1,1,1,1,1],
+                                 [2,2,2,2,2],
+                                 [3,3,3,3,3]],
+                                [[3,3,3,3,3],
+                                 [1,1,1,1,1],
+                                 [4,5,4,5,5]]])
+        class MockBeamManager:
+            def get_all_choices_lengths(self):
+                return lengths
+        bm = MockBeamManager()
+
+        self.gen.config.length_normalization = LengthNormalization.NONE
+        self.gen.config.length_reward_gamma = 5.0
+        self.gen.config.length_norm_alpha = 2.0
+        log_probs_out = self.gen.length_normalize(bm, log_probs)
+        self.assertTrue(torch.equal(log_probs_out, log_probs))
+
+        self.gen.config.length_normalization = LengthNormalization.LENGTH_REWARD
+        self.gen.config.length_reward_gamma = 3.0
+        self.gen.config.length_norm_alpha = 2.0
+        log_probs_correct = torch.tensor([[[-6.0+3*3.0, ni, ni, ni, ni],
+                                           [-3.0+2*3.0, ni, ni, ni, ni],
+                                           [ni, ni, -1.0+4*3.0, -2.0+5*3.0, -3.0+5*3.0]],
+                                          [[ni, ni, -4.0+4*3.0, -5.0+5*3.0, -6.0+5*3.0],
+                                           [ni, ni, -7.0+4*3.0, -8.0+5*3.0, -9.0+5*3.0],
+                                           [-1.0+3*3.0, ni, ni, ni, ni]],
+                                          [[-4.0+1*3.0, ni, ni, ni, ni],
+                                           [-2.0+2*3.0, ni, ni, ni, ni],
+                                           [-5.0+3*3.0, ni, ni, ni, ni]],
+                                          [[-7.0+3*3.0, ni, ni, ni, ni],
+                                           [-8.0+1*3.0, ni, ni, ni, ni],
+                                           [ni, ni, -10.0+4*3.0, -11.0+5*3.0, -12.0+5*3.0]]])
+        log_probs_out = self.gen.length_normalize(bm, log_probs)
+        self.assertTrue(torch.equal(log_probs_out, log_probs_correct))
+
+        self.gen.config.length_normalization = LengthNormalization.LENGTH_NORM
+        self.gen.config.length_reward_gamma = 3.0
+        self.gen.config.length_norm_alpha = 2.0
+        log_probs_correct = torch.tensor([[[-6.0/3, ni, ni, ni, ni],
+                                           [-3.0/2, ni, ni, ni, ni],
+                                           [ni, ni, -1.0/4, -2.0/5, -3.0/5]],
+                                          [[ni, ni, -4.0/4, -5.0/5, -6.0/5],
+                                           [ni, ni, -7.0/4, -8.0/5, -9.0/5],
+                                           [-1.0/3, ni, ni, ni, ni]],
+                                          [[-4.0/1, ni, ni, ni, ni],
+                                           [-2.0/2, ni, ni, ni, ni],
+                                           [-5.0/3, ni, ni, ni, ni]],
+                                          [[-7.0/3, ni, ni, ni, ni],
+                                           [-8.0/1, ni, ni, ni, ni],
+                                           [ni, ni, -10.0/4, -11.0/5, -12.0/5]]])
+        log_probs_out = self.gen.length_normalize(bm, log_probs)
+        self.assertTrue(torch.equal(log_probs_out, log_probs_correct))
+
+        # not doing the calculation on this one, just making sure it runs
+        self.gen.config.length_normalization = LengthNormalization.GOOGLE_METHOD
+        self.gen.config.length_reward_gamma = 3.0
+        self.gen.config.length_norm_alpha = 2.0
+        log_probs_out = self.gen.length_normalize(bm, log_probs)
+        self.assertEqual(log_probs_out.size(), log_probs.size())
