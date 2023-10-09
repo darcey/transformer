@@ -161,194 +161,155 @@ class TestLearningRate(unittest.TestCase):
     def tearDown(self):
         self.checkpt_dir.cleanup()
 
-    def testWarmupInvSqrtDecay(self):
-        self.config.train.lr.lr_strategy = LearningRateStrategy.WARMUP_INV_SQRT_DECAY
-        self.config.train.lr.lr_scale = 2
-        self.config.train.lr.warmup_steps = 4
-        self.config.arch.d_model = 256
-        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
+    def testWarmup(self):
+        for strategy in [LearningRateStrategy.WARMUP_INV_SQRT_DECAY, LearningRateStrategy.WARMUP_VAL_DECAY]:
+            self.config.train.lr.lr_strategy = strategy
+            self.config.train.lr.lr_scale = 2
+            self.config.train.lr.warmup_steps = 4
+            self.config.arch.d_model = 256
+            trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
 
-        # Sets init rate correctly?
-        start_lr = trainer.get_initial_learning_rate()
-        self.assertEqual(start_lr, 1/64)
-        self.assertEqual(trainer.lr, 1/64)
+            # Sets init rate correctly?
+            start_lr = trainer.get_initial_learning_rate()
+            self.assertEqual(start_lr, 1/64)
+            self.assertEqual(trainer.lr, 1/64)
 
-        # Updates lr correctly after each step?
-        # During warmup
-        trainer.num_steps = 1
-        trainer.adjust_learning_rate_step()
-        self.assertEqual(trainer.lr, 1/32)
-        # After warmup
-        trainer.num_steps = 8
-        trainer.adjust_learning_rate_step()
-        self.assertEqual(trainer.lr, 1/24)
+            # Set num steps to during warmup
+            trainer.num_steps = 1
 
-        # Does nothing after each epoch?
-        # During warmup
-        trainer.num_steps = 1
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
-        # After warmup
-        trainer.num_steps = 8
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
+            # During warmup, after each step, updates lr correctly?
+            trainer.adjust_learning_rate_step()
+            self.assertEqual(trainer.lr, 1/32)
 
-        # Always answers false for early stopping
-        trainer.num_steps = 1
-        self.assertFalse(trainer.early_stopping())
-        trainer.num_steps = 8
-        self.assertFalse(trainer.early_stopping())
-        trainer.lr_config.stop_lr = 0.0005
-        trainer.lr                = 0.00005
-        self.assertFalse(trainer.early_stopping())
+            # During warmup, after each epoch, does not modify lr?
+            lr_before = trainer.lr
+            trainer.adjust_learning_rate_epoch()
+            lr_after = trainer.lr
+            self.assertEqual(lr_before, lr_after)
 
-    def testWarmupValDecay(self):
-        self.config.train.lr.lr_strategy = LearningRateStrategy.WARMUP_VAL_DECAY
-        self.config.train.lr.lr_scale = 2
-        self.config.train.lr.warmup_steps = 4
-        self.config.arch.d_model = 256
-        self.config.train.lr.patience = 3
-        self.config.train.lr.lr_decay = 0.5
-        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
+            # During warmup, no early stopping
+            trainer.num_steps = 1
+            trainer.lr_config.stop_lr = 0.0005
+            trainer.lr                = 0.00005
+            self.assertFalse(trainer.early_stopping())
+            
+    def testNoWarmup(self):
+        for strategy in [LearningRateStrategy.NO_WARMUP_VAL_DECAY]:
+            self.config.train.lr.lr_strategy = strategy
+            self.config.train.lr.start_lr = 0.1
+            trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
 
-        # Sets init rate correctly?
-        start_lr = trainer.get_initial_learning_rate()
-        self.assertEqual(start_lr, 1/64)
-        self.assertEqual(trainer.lr, 1/64)
+            # Sets init rate correctly?
+            start_lr = trainer.get_initial_learning_rate()
+            self.assertEqual(start_lr, 0.1)
+            self.assertEqual(trainer.lr, 0.1)
 
-        # Updates lr correctly after each step?
-        # During warmup, should update
-        trainer.num_steps = 1
-        trainer.adjust_learning_rate_step()
-        self.assertEqual(trainer.lr, 1/32)
-        # After warmup, should do nothing
-        trainer.num_steps = 8
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_step()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
+    def testInvSqrtDecay(self):
+        for strategy in [LearningRateStrategy.WARMUP_INV_SQRT_DECAY]:
+            self.config.train.lr.lr_strategy = strategy
+            self.config.train.lr.lr_scale = 2
+            self.config.train.lr.warmup_steps = 4
+            self.config.arch.d_model = 256
+            trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
+            
+            # Set num steps to after warmup
+            trainer.num_steps = 8
 
-        # Updates correctly after each epoch?
-        # During warmup, should do nothing
-        trainer.num_steps = 1
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
-        # After warmup
-        trainer.num_steps = 8
-        # Should do nothing if not enough epochs
-        trainer.num_epochs = 3
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
-        # After enough epochs
-        trainer.num_epochs = 5
-        # Should do nothing if perplexity going down
-        trainer.dev_ppls = [0.5, 0.4, 0.3, 0.2, 0.1]
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
-        # Should do nothing if perplexity going up, but not worst in patience
-        trainer.dev_ppls = [0.3, 0.1, 0.5, 0.2, 0.4]
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
-        # Should decay if perplexity going up compared to last patience ppls
-        trainer.dev_ppls = [0.5, 0.1, 0.3, 0.2, 0.4]
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before * 0.5, lr_after)
+            # After warmup, after each step, updates lr correctly?
+            trainer.adjust_learning_rate_step()
+            self.assertEqual(trainer.lr, 1/24)
 
-        # During warmup, no early stopping
-        trainer.num_steps = 1
-        trainer.lr_config.stop_lr = 0.0005
-        trainer.lr                = 0.00005
-        self.assertFalse(trainer.early_stopping())
-        # After warmup, early stopping works right
-        trainer.num_steps = 8
-        trainer.lr_config.stop_lr = 0.0005
-        trainer.lr                = 0.005
-        self.assertFalse(trainer.early_stopping())
-        trainer.lr_config.stop_lr = 0.0005
-        trainer.lr                = 0.00005
-        self.assertTrue(trainer.early_stopping())
+            # After warmup, after each epoch, does not modify lr?
+            lr_before = trainer.lr
+            trainer.adjust_learning_rate_epoch()
+            lr_after = trainer.lr
+            self.assertEqual(lr_before, lr_after)
 
-    def testNoWarmupValDecay(self):
-        self.config.train.lr.lr_strategy = LearningRateStrategy.NO_WARMUP_VAL_DECAY
-        self.config.train.lr.lr_scale = 2
-        self.config.train.lr.warmup_steps = 4
-        self.config.arch.d_model = 256
-        self.config.train.lr.patience = 3
-        self.config.train.lr.lr_decay = 0.5
-        self.config.train.lr.start_lr = 0.1
-        trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
+            # No early stopping
+            trainer.num_steps = 8
+            self.assertFalse(trainer.early_stopping())
+            trainer.lr_config.stop_lr = 0.0005
+            trainer.lr                = 0.00005
+            self.assertFalse(trainer.early_stopping())
 
-        # Sets init rate correctly? (Not based on warmup)
-        start_lr = trainer.get_initial_learning_rate()
-        self.assertEqual(start_lr, 0.1)
-        self.assertEqual(trainer.lr, 0.1)
+    def testValDecay(self):
+        for strategy in [LearningRateStrategy.NO_WARMUP_VAL_DECAY, LearningRateStrategy.NO_WARMUP_VAL_DECAY]:
+            self.config.train.lr.lr_strategy = strategy
+            self.config.train.lr.lr_scale = 2
+            self.config.train.lr.warmup_steps = 4
+            self.config.arch.d_model = 256
+            self.config.train.lr.patience = 3
+            self.config.train.lr.lr_decay = 0.5
+            self.config.train.lr.start_lr = 0.1
+            trainer = Trainer(self.model, self.vocab, self.config, self.checkpt_dir.name, self.device)
 
-        # Updates lr correctly after each step?
-        # During warmup, should do nothing
-        trainer.num_steps = 1
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_step()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
-        # After warmup, should do nothing
-        trainer.num_steps = 8
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_step()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
+            # Set num steps to after warmup in case of warmup
+            trainer.num_steps = 8
 
-        # Updates correctly after each epoch?
-        # It should not matter if num_steps < warmup_steps
-        trainer.num_steps = 1
-        # Should do nothing if not enough epochs
-        trainer.num_epochs = 3
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
-        # After enough epochs
-        trainer.num_epochs = 5
-        # Should do nothing if perplexity going down
-        trainer.dev_ppls = [0.5, 0.4, 0.3, 0.2, 0.1]
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
-        # Should do nothing if perplexity going up, but not worst in patience
-        trainer.dev_ppls = [0.3, 0.1, 0.5, 0.2, 0.4]
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before, lr_after)
-        # Should decay if perplexity going up compared to last patience ppls
-        trainer.dev_ppls = [0.5, 0.1, 0.3, 0.2, 0.4]
-        lr_before = trainer.lr
-        trainer.adjust_learning_rate_epoch()
-        lr_after = trainer.lr
-        self.assertEqual(lr_before * 0.5, lr_after)
+            # After warmup, after each step, does not modify lr?
+            lr_before = trainer.lr
+            trainer.adjust_learning_rate_step()
+            lr_after = trainer.lr
+            self.assertEqual(lr_before, lr_after)
 
-        # Early stopping works even during warmup
-        trainer.num_steps = 1
-        trainer.lr_config.stop_lr = 0.0005
-        trainer.lr                = 0.005
-        self.assertFalse(trainer.early_stopping())
-        trainer.lr_config.stop_lr = 0.0005
-        trainer.lr                = 0.00005
-        self.assertTrue(trainer.early_stopping())
+            # After each epoch
+            # Should do nothing if not enough epochs
+            trainer.num_epochs = 3
+            lr_before = trainer.lr
+            trainer.adjust_learning_rate_epoch()
+            lr_after = trainer.lr
+            self.assertEqual(lr_before, lr_after)
+            # After enough epochs
+            trainer.num_epochs = 5
+            # Should do nothing if perplexity going down / BLEU going up
+            trainer.eval_metric = EvalMetric.PPL
+            trainer.dev_ppls = [0.5, 0.4, 0.3, 0.2, 0.1]
+            lr_before = trainer.lr
+            trainer.adjust_learning_rate_epoch()
+            lr_after = trainer.lr
+            self.assertEqual(lr_before, lr_after)
+            trainer.eval_metric = EvalMetric.BLEU
+            trainer.dev_bleus = [0.1, 0.2, 0.3, 0.4, 0.5]
+            lr_before = trainer.lr
+            trainer.adjust_learning_rate_epoch()
+            lr_after = trainer.lr
+            self.assertEqual(lr_before, lr_after)
+            # Should do nothing if perplexity going up / BLEU going down, 
+            # but not worst in patience
+            trainer.eval_metric = EvalMetric.PPL
+            trainer.dev_ppls = [0.3, 0.1, 0.5, 0.2, 0.4]
+            lr_before = trainer.lr
+            trainer.adjust_learning_rate_epoch()
+            lr_after = trainer.lr
+            self.assertEqual(lr_before, lr_after)
+            trainer.eval_metric = EvalMetric.BLEU
+            trainer.dev_bleus = [0.3, 0.5, 0.1, 0.4, 0.2]
+            lr_before = trainer.lr
+            trainer.adjust_learning_rate_epoch()
+            lr_after = trainer.lr
+            self.assertEqual(lr_before, lr_after)
+            # Should decay if perplexity going up / BLEU going down,
+            # compared to last patience ppls
+            trainer.eval_metric = EvalMetric.PPL
+            trainer.dev_ppls = [0.5, 0.1, 0.3, 0.2, 0.4]
+            lr_before = trainer.lr
+            trainer.adjust_learning_rate_epoch()
+            lr_after = trainer.lr
+            self.assertEqual(lr_before * 0.5, lr_after)
+            trainer.eval_metric = EvalMetric.BLEU
+            trainer.dev_bleus = [0.1, 0.5, 0.3, 0.4, 0.2]
+            lr_before = trainer.lr
+            trainer.adjust_learning_rate_epoch()
+            lr_after = trainer.lr
+            self.assertEqual(lr_before * 0.5, lr_after)
+
+            # Early stopping
+            trainer.lr_config.stop_lr = 0.0005
+            trainer.lr                = 0.005
+            self.assertFalse(trainer.early_stopping())
+            trainer.lr_config.stop_lr = 0.0005
+            trainer.lr                = 0.00005
+            self.assertTrue(trainer.early_stopping())
 
 
 

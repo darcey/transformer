@@ -1,11 +1,10 @@
-# TODO(darcey): dev BLEU computation
 # TODO(darcey): check to make sure that, if num_beams_or_samples > max_parallel_sentences, then the generation method is compatible with being split up
 
 import argparse
 import torch
 
 from configuration import read_config
-from reader_writer import read_data, print_translations
+from reader_writer import read_data, print_translations, compute_bleu
 from vocabulary import Vocabulary
 from dataset import Seq2SeqTranslateDataset
 from translator import Translator
@@ -32,6 +31,8 @@ def get_parser():
                         help='Optional gold truth data for computing BLEU')
     parser.add_argument('--compute-bleu', action='store_true',
                         help='If this argument is used, will compute BLEU score of translations')
+    parser.add_argument('--bleu-script', type=str, required=False,
+                        help='Script that does postprocessing and computes BLEU score')
 
     return parser
 
@@ -86,6 +87,6 @@ if __name__ == '__main__':
         tgt_all = vocab.idx_to_tok_data(tgt_all, nesting=3)
         print_translations(args.tgt, tgt_final, tgt_all, probs_all)
 
-    #if args.compute_bleu:
-        # load gold
-        # compute bleu
+    if args.compute_bleu:
+        bleu = compute_bleu(args.bleu_script, args.tgt, args.gold)
+        print(f"BLEU score:\t{bleu}")

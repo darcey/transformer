@@ -1,4 +1,3 @@
-# TODO(darcey): make the generator and translator; pass them into the trainer
 # TODO(darcey): make it possible to resume training from a checkpoint (will need to save learning rate details etc. in addition to the checkpoint itself; probably best way to do this is to write out a custom config file representing the current state)
 
 import os
@@ -7,10 +6,11 @@ import torch
 
 from configuration import read_config
 from trainer import Trainer
-from reader_writer import read_data, print_translations
+from translator import Translator
+from reader_writer import read_data, print_translations, compute_bleu
 from vocabulary import Vocabulary
 from dataset import Seq2SeqTranslateDataset, Seq2SeqTrainDataset
-#from generator import Generator
+from generator import Generator
 from transformer import get_transformer
 
 def get_parser():
@@ -27,11 +27,15 @@ def get_parser():
                         help='File location for src side dev data')
     parser.add_argument('--dev-tgt', type=str, required=True,
                         help='File location for tgt side dev data')
+    parser.add_argument('--dev-tgt-gold', type=str, required=True,
+                        help='File location for the dev data to be used during BLEU computations (may be different than dev-tgt due to tokenization)')
 
     parser.add_argument('--vocab', type=str, required=True,
                         help='File location to write the vocabulary to')
     parser.add_argument('--checkpoint-dir', type=str, required=True,
                         help='Directory to save model checkpoints to')
+    parser.add_argument('--bleu-script', type=str, required=False,
+                        help='Script that does postprocessing and computes BLEU score')
 
     return parser
 
@@ -41,6 +45,14 @@ if __name__ == '__main__':
 
     # read in configs from config file
     config = read_config(args.config)
+
+    # computations pertaining to the batch size for dev BLEU computation
+    max_parallel_sentences = config.gen.max_parallel_sentences
+    num_beams_or_samples = config.gen.num_beams_or_samples
+    if max_parallel_sentences < num_beams_or_samples:
+        translate_batch_size = 1
+    else:
+        translate_batch_size = int(max_parallel_sentences / num_beams_or_samples)
 
     # read in data from file
     train_src = read_data(args.train_src)
@@ -82,8 +94,11 @@ if __name__ == '__main__':
                                       eos_idx=vocab.eos_idx(),
                                       sort_by_tgt_only=False,
                                       randomize=False)
-    #if config.train.compute_bleu:
-    #    dev_translate_batches = Seq2SeqTranslateDataset(dev_src_idxs, vocab, config.generation.max_parallel_sentences, ....)
+    dev_translate_batches = Seq2SeqTranslateDataset(pad_idx=vocab.pad_idx(),
+                                                    bos_idx=vocab.bos_idx(),
+                                                    eos_idx=vocab.eos_idx())
+    dev_translate_batches.initialize_from_src_data(src=dev_src_idxs,
+                                                   sents_per_batch=translate_batch_size)
 
     # determine the device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -92,21 +107,27 @@ if __name__ == '__main__':
     tgt_support_mask = vocab.get_tgt_support_mask()
     model = get_transformer(config, len(vocab), vocab.pad_idx(), tgt_support_mask)
     model.to(device)
-    
-    # if using dev BLEU, make the generator and translator
-    #if config.train.compute_bleu:
-    #    generator = Generator(model, ...)
-    #    translator = Translator(...)
-    #    def print_func(data):
-    #        return print_translations(vocab.idx_to_tok_data(dev_translate_batches.restore_original_order(data)))
-    
-    # make the trainer
+
+    # make the directory for saving checkpoints + translations
     if not os.path.exists(args.checkpoint_dir):
         os.makedirs(args.checkpoint_dir)
-    #if config.train.compute_bleu:
-    #    trainer = Trainer(model, vocab, config, args.checkpoint_dir, device, translator, print_func)
-    # else
+
+    # construct the function for computing BLEU scores
+    generator = Generator(model, config, device, len(vocab), vocab.pad_idx(), vocab.bos_idx(), vocab.eos_idx())
+    translator = Translator(model, generator, device)
+    def translate_and_bleu_func(epoch_num, max_epochs):
+        for dev_translated_batches in translator.translate(dev_translate_batches):
+            dev_translated_final, dev_translated_all, probs_all = dev_translated_batches.unbatch()
+            dev_translated_final = vocab.idx_to_tok_data(dev_translated_final)
+            dev_translated_all = vocab.idx_to_tok_data(dev_translated_all, nesting=3)
+            dev_translated_filename = f"{os.path.basename(args.dev_tgt)}.{epoch_num:0{len(str(max_epochs))}d}"
+            dev_translated_filepath = os.path.join(args.checkpoint_dir, dev_translated_filename)
+            print_translations(dev_translated_filepath, dev_translated_final, dev_translated_all, probs_all)
+            bleu = compute_bleu(args.bleu_script, dev_translated_filepath, args.dev_tgt_gold)
+        return bleu
+
+    # make the trainer
     trainer = Trainer(model, vocab, config, args.checkpoint_dir, device)
 
     # train
-    trainer.train(train_batches, dev_batches)
+    trainer.train(train_batches, dev_batches, translate_and_bleu_func)

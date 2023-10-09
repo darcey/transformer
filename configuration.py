@@ -40,6 +40,10 @@ class LearningRateStrategy(Enum):
     WARMUP_VAL_DECAY = "Warmup_ValDecay"
     NO_WARMUP_VAL_DECAY = "NoWarmup_ValDecay"
 
+class EvalMetric(Enum):
+    BLEU = "BLEU"
+    PPL = "Perplexity"
+
 class ClipGrad(Enum):
     NONE = "None"
     MAX = "Max"
@@ -68,6 +72,7 @@ def read_config(filename):
     config_train_lr = Namespace(**config_dict["training"]["lr"])
     config_train_lr.lr_strategy = LearningRateStrategy(config_train_lr.lr_strategy)
     config_train.lr = config_train_lr
+    config_train.eval_metric = EvalMetric(config_train.eval_metric)
     config_train.clip_grad = ClipGrad(config_train.clip_grad)
     
     config_gen = Namespace(**config_dict["generation"])

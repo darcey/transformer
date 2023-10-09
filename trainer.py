@@ -1,5 +1,3 @@
-# TODO(darcey): compute dev BLEU
-
 # TODO(darcey): implement null learning rate schedule
 # TODO(darcey): improve torch efficiency throughout codebase (switch from reshape to view? bmm vs. matmul?)
 # TODO(darcey): implement classifier learning also
@@ -8,7 +6,7 @@ import os
 import time
 import math
 import torch
-from configuration import LearningRateStrategy, ClipGrad
+from configuration import LearningRateStrategy, EvalMetric, ClipGrad
 
 class Trainer():
 
@@ -21,6 +19,7 @@ class Trainer():
         self.lr_config = config.train.lr
         self.lr_config.d_model = config.arch.d_model
         self.lr = self.get_initial_learning_rate()
+        self.eval_metric = config.train.eval_metric
         self.clip_grad = config.train.clip_grad
         self.clip_grad_max = config.train.clip_grad_max
         self.clip_grad_scale = config.train.clip_grad_scale
@@ -32,6 +31,7 @@ class Trainer():
         self.num_steps = 0
         self.num_epochs = 0
         self.dev_ppls = []
+        self.dev_bleus = []
 
         self.support_mask = vocab.get_tgt_support_mask()
         self.label_smoothing = config.train.label_smoothing
@@ -51,16 +51,26 @@ class Trainer():
 
         return
 
-    def train(self, train, dev):
+    def train(self, train, dev, translate_and_bleu_func):
         # check what dev perplexity is before starting
         ppl_start = time.time()
         dev_ppl = self.perplexity(dev)
         self.dev_ppls.append(dev_ppl)
         ppl_end = time.time()
         ppl_time = ppl_end - ppl_start
+
+        # check what BLEU is before starting
+        bleu_start = time.time()
+        dev_bleu = translate_and_bleu_func(self.num_epochs, self.max_epochs)
+        self.dev_bleus.append(dev_bleu)
+        bleu_end = time.time()
+        bleu_time = bleu_end - bleu_start
+
+        # print stats
         print("-"*80 + "\n")
         print(f"EPOCH {self.num_epochs:{len(str(self.max_epochs))}}")
         print(f"Dev perplexity:\t{dev_ppl} (computation took {ppl_time:.4f} seconds)")
+        print(f"Dev BLEU:\t{dev_bleu} (computation took {bleu_time:.4f} seconds)")
         print()
 
         # save initial weights, why not
@@ -99,18 +109,26 @@ class Trainer():
             epoch_time = epoch_end - epoch_start
 
             # evaluate dev perplexity
-            # TODO(darcey): evaluate dev BLEU
             ppl_start = time.time()
             dev_ppl = self.perplexity(dev)
             self.dev_ppls.append(dev_ppl)
             ppl_end = time.time()
             ppl_time = ppl_end - ppl_start
+
+            # evaluate dev BLEU
+            bleu_start = time.time()
+            dev_bleu = translate_and_bleu_func(self.num_epochs, self.max_epochs)
+            self.dev_bleus.append(dev_bleu)
+            bleu_end = time.time()
+            bleu_time = bleu_end - bleu_start
+
+            # print stats
             print("-"*80 + "\n")
             print(f"EPOCH {self.num_epochs:{len(str(self.max_epochs))}}")
             print(f"Training time:\t{epoch_time:.4f} seconds")
             print(f"Learning rate:\t{self.lr}")
             print(f"Dev perplexity:\t{dev_ppl} (computation took {ppl_time:.4f} seconds)")
-            print()
+            print(f"Dev BLEU:\t{dev_bleu} (computation took {bleu_time:.4f} seconds)")
 
             # save checkpoint as needed
             self.maybe_save_checkpoint()
@@ -159,13 +177,16 @@ class Trainer():
         return perplexity
 
     def maybe_save_checkpoint(self):
-        if self.dev_ppls[-1] == min(self.dev_ppls):
-            filename = f"model.{self.num_epochs:0{len(str(self.max_epochs))}d}:{self.dev_ppls[-1]}"
+        scores = self.dev_ppls if self.eval_metric == EvalMetric.PPL else self.dev_bleus
+        opt = min if self.eval_metric == EvalMetric.PPL else max
+        if scores[-1] == opt(scores):
+            filename = f"model.{self.num_epochs:0{len(str(self.max_epochs))}d}:{scores[-1]:.6f}"
             filepath = os.path.join(self.checkpoint_dir, filename)
             torch.save(self.model.state_dict(), filepath)
 
     def save_final_checkpoint(self):
-        filename = f"model.final:{self.dev_ppls[-1]}"
+        scores = self.dev_ppls if self.eval_metric == EvalMetric.PPL else self.dev_bleus
+        filename = f"model.final:{scores[-1]:.6f}"
         filepath = os.path.join(self.checkpoint_dir, filename)
         torch.save(self.model.state_dict(), filepath)
 
@@ -203,8 +224,11 @@ class Trainer():
         if (conf.lr_strategy == LearningRateStrategy.NO_WARMUP_VAL_DECAY) or\
            (conf.lr_strategy == LearningRateStrategy.WARMUP_VAL_DECAY and\
             steps >= conf.warmup_steps):
+            scores = self.dev_ppls if self.eval_metric == EvalMetric.PPL else self.dev_bleus
+            worst = max if self.eval_metric == EvalMetric.PPL else min
+            is_worse = (lambda x, y: x > y) if self.eval_metric == EvalMetric.PPL else (lambda x, y: x < y)
             if (self.num_epochs > conf.patience) and\
-               (self.dev_ppls[-1] > max(self.dev_ppls[-1-conf.patience:-1])):
+               (is_worse(scores[-1], worst(scores[-1-conf.patience:-1]))):
                 self.lr = self.lr * conf.lr_decay
                 for g in self.optimizer.param_groups:
                     g['lr'] = self.lr
