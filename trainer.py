@@ -180,13 +180,13 @@ class Trainer():
         scores = self.dev_ppls if self.eval_metric == EvalMetric.PPL else self.dev_bleus
         opt = min if self.eval_metric == EvalMetric.PPL else max
         if scores[-1] == opt(scores):
-            filename = f"model.{self.num_epochs:0{len(str(self.max_epochs))}d}:{scores[-1]:.6f}"
+            filename = f"model.{self.num_epochs:0{len(str(self.max_epochs))}d}:{scores[-1]:.4f}"
             filepath = os.path.join(self.checkpoint_dir, filename)
             torch.save(self.model.state_dict(), filepath)
 
     def save_final_checkpoint(self):
         scores = self.dev_ppls if self.eval_metric == EvalMetric.PPL else self.dev_bleus
-        filename = f"model.final:{scores[-1]:.6f}"
+        filename = f"model.final:{scores[-1]:.4f}"
         filepath = os.path.join(self.checkpoint_dir, filename)
         torch.save(self.model.state_dict(), filepath)
 

@@ -19,21 +19,6 @@ class Seq2SeqTrainBatch:
         self.num_src_toks = num_src_toks
         self.num_tgt_toks = num_tgt_toks
 
-class Seq2SeqTranslateBatch:
-
-    def __init__(self, src, orig_idxs):
-        self.src       = src
-        self.orig_idxs = orig_idxs
-
-    def with_translation(self, tgt_final, tgt_all, probs_all):
-        new_batch = Seq2SeqTranslateBatch(self.src.clone(), self.orig_idxs.copy())
-        new_batch.tgt_final = tgt_final
-        new_batch.tgt_all = tgt_all
-        new_batch.probs_all = probs_all
-        return new_batch
-
-
-
 class Seq2SeqTrainDataset:
 
     # assumes src, tgt are lists of lists of token indices
@@ -135,24 +120,22 @@ class Seq2SeqTrainDataset:
 
 
 
-class Seq2SeqTranslateDataset:
+class Seq2SeqTranslateSubdataset:
 
-    # assumes src is a list of lists of token indices
-    def __init__(self, pad_idx, bos_idx, eos_idx):
+    def __init__(self, src, sents_per_batch, pad_idx, bos_idx, eos_idx):
         self.pad_idx = pad_idx
         self.bos_idx = bos_idx
         self.eos_idx = eos_idx
+        
+        src, self.orig_idxs = self.sort_by_len(src)
+
         self.batches = []
+        for start in range(0, len(src), sents_per_batch):
+            batch = self.make_one_batch(src[start:start+sents_per_batch])
+            self.batches.append(batch)
 
     def __len__(self):
         return len(self.batches)
-
-    def initialize_from_src_data(self, src, sents_per_batch, in_order=False):
-        if not in_order:
-            src, orig_idxs = self.sort_by_len(src)
-        else:
-            orig_idxs = list(range(len(src)))
-        self.batches = self.make_batches(src, orig_idxs, sents_per_batch)
 
     def sort_by_len(self, src):
         lens = [len(src_sent) for src_sent in src]
@@ -161,18 +144,7 @@ class Seq2SeqTranslateDataset:
         orig_idxs = np.argsort(sorted_idxs)
         return sorted_src, orig_idxs
 
-    def make_batches(self, src, orig_idxs, sents_per_batch):
-        batches = []
-        start_idx = 0
-        while start_idx < len(src):
-            end_idx = min(start_idx + sents_per_batch, len(src))
-            curr_batch = src[start_idx:end_idx]
-            curr_idxs = orig_idxs[start_idx:end_idx]
-            batches.append(self.make_one_batch(curr_batch, curr_idxs))
-            start_idx += sents_per_batch
-        return batches
-
-    def make_one_batch(self, src_list, orig_idxs):
+    def make_one_batch(self, src_list):
         num_sents = len(src_list)
         max_len = max([len(src_sent) for src_sent in src_list])
 
@@ -182,14 +154,9 @@ class Seq2SeqTranslateDataset:
         for i, src_sent in enumerate(src_list):
             src_tensor[i] = torch.tensor(src_sent + [EOS] + [PAD]*(max_len - len(src_sent)))
 
-        return Seq2SeqTranslateBatch(src_tensor, orig_idxs)
+        return src_tensor
 
-    def get_empty_tgt_dataset(self):
-        return Seq2SeqTranslateDataset(self.pad_idx, self.bos_idx, self.eos_idx)
-
-    def add_batch(self, batch):
-        self.batches.append(batch)
-
+    # unpad a list of idxs
     def unpad(self, gen, keep_bos_eos=False):
         tok_list = []
         for tok in gen:
@@ -206,16 +173,32 @@ class Seq2SeqTranslateDataset:
                 tok_list.append(tok)
         return tok_list
 
-    def restore_order(self, tgt, orig_idxs):
-        order = np.argsort(np.argsort(orig_idxs))
-        return [tgt[i] for i in order]
+    # takes target stuff output by the generator; untensors it
+    # tgt_final: [batch, seq_len]
+    # tgt_all:   [batch, beam, seq_len]
+    # probs_all: [batch, beam]
+    # return values:
+    #   tgt_final: list of lists of idxs
+    #   tgt_all:   list of lists of lists of idxs
+    #   probs_all: list of lists of probabilities
+    def unbatch(self, tgt_final, tgt_all, probs_all):
+        tgt_final = [self.unpad(tgt_sent) for tgt_sent in tgt_final.tolist()]
+        tgt_all = [[self.unpad(gen, keep_bos_eos=True) for gen in tgt_sent] for tgt_sent in tgt_all.tolist()]
+        probs_all = [[prob for prob in tgt_sent] for tgt_sent in probs_all.tolist()] 
+        return tgt_final, tgt_all, probs_all
 
-    def unbatch(self):
-        all_orig_idxs = [idx for batch in self.batches for idx in batch.orig_idxs]
-        all_tgt_final = [self.unpad(tgt_sent) for batch in self.batches for tgt_sent in batch.tgt_final.tolist()]
-        all_tgt_final = self.restore_order(all_tgt_final, all_orig_idxs)
-        all_tgt_all = [[self.unpad(gen, keep_bos_eos=True) for gen in tgt_sent] for batch in self.batches for tgt_sent in batch.tgt_all.tolist()]
-        all_tgt_all = self.restore_order(all_tgt_all, all_orig_idxs)
-        all_probs_all = [[prob for prob in tgt_sent] for batch in self.batches for tgt_sent in batch.probs_all.tolist()]
-        all_probs_all = self.restore_order(all_probs_all, all_orig_idxs)
-        return all_tgt_final, all_tgt_all, all_probs_all
+    def restore_order(self, tgt_list):
+        order = np.argsort(np.argsort(self.orig_idxs))
+        return [tgt_list[i] for i in order]
+
+class Seq2SeqTranslateDataset:
+
+    # assumes src is a list of lists of token indices
+    def __init__(self, src, sents_per_batch, sents_per_subdataset, pad_idx, bos_idx, eos_idx):
+        self.subdatasets = []
+        for start in range(0, len(src), sents_per_subdataset):
+            subdataset = Seq2SeqTranslateSubdataset(src[start:start+sents_per_subdataset], sents_per_batch, pad_idx, bos_idx, eos_idx)
+            self.subdatasets.append(subdataset)
+
+    def __len__(self):
+        return len(self.subdatasets)

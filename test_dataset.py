@@ -196,238 +196,123 @@ class TestSeq2SeqTrainDataset(unittest.TestCase):
 
 
 
-class TestSeq2SeqTranslateDataset(unittest.TestCase):
-
-    def testInit(self):
-        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
-        self.assertEqual(len(ds), 0)
+class TestSeq2SeqTranslateSubdataset(unittest.TestCase):
 
     def testSortByLen(self):
         src = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7],[5,6,7,9]]
-        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        sds = Seq2SeqTranslateSubdataset(src, 10, pad_idx=0, bos_idx=1, eos_idx=2)
 
         sorted_src_correct = [[5,6],[5,6,7],[5,6,7,8],[5,6,7,9],[5,6,7,8,9]]
         orig_idxs_correct = [2,4,0,1,3]
-        sorted_src_actual, orig_idxs_actual = ds.sort_by_len(src)
+        sorted_src_actual, orig_idxs_actual = sds.sort_by_len(src)
         self.assertEqual(sorted_src_actual, sorted_src_correct)
         self.assertEqual(list(orig_idxs_actual), orig_idxs_correct)
 
     def testMakeOneBatch(self):
-        src_sents = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7]]
-        orig_idxs = [0,1,2,3]
-        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        src = [[5,6,7,8],[5,6,7,8,9],[5,6],[5,6,7]]
+        sds = Seq2SeqTranslateSubdataset(src, 10, pad_idx=0, bos_idx=1, eos_idx=2)
 
         PAD, BOS, EOS = 0, 1, 2
         src_correct = torch.tensor([[5,6,7,8,EOS,PAD],
                                     [5,6,7,8,9,EOS],
                                     [5,6,EOS,PAD,PAD,PAD],
                                     [5,6,7,EOS,PAD,PAD]])
-        actual = ds.make_one_batch(src_sents, orig_idxs)
-        self.assertTrue(torch.equal(actual.src, src_correct))
-        self.assertEqual(actual.orig_idxs, orig_idxs)
+        src_actual = sds.make_one_batch(src)
+        self.assertTrue(torch.equal(src_actual, src_correct))
 
-    def testMakeBatches(self):
-        src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
-        orig_idxs = [0,1,2,3,4,5,6]
-        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
-
-        PAD, BOS, EOS = 0, 1, 2
-        src_correct_1 = torch.tensor([[5,6,EOS,PAD,PAD],[5,6,8,9,EOS]])
-        src_correct_2 = torch.tensor([[5,6,7,EOS],[7,8,EOS,PAD]])
-        src_correct_3 = torch.tensor([[5,6,7,8,9,EOS],[5,6,7,8,EOS,PAD]])
-        src_correct_4 = torch.tensor([[5,6,9,EOS]])
-
-        actual = ds.make_batches(src_sents, orig_idxs, sents_per_batch=2)
-
-        self.assertEqual(len(actual), 4)
-
-        self.assertTrue(torch.equal(actual[0].src, src_correct_1))
-        self.assertEqual(list(actual[0].orig_idxs), [0,1])
-
-        self.assertTrue(torch.equal(actual[1].src, src_correct_2))
-        self.assertEqual(list(actual[1].orig_idxs), [2,3])
-
-        self.assertTrue(torch.equal(actual[2].src, src_correct_3))
-        self.assertEqual(list(actual[2].orig_idxs), [4,5])
-
-        self.assertTrue(torch.equal(actual[3].src, src_correct_4))
-        self.assertEqual(list(actual[3].orig_idxs), [6])
-
-    def testInitFromSrcDataInOrder(self):
-        src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
-        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
-        ds.initialize_from_src_data(src_sents, sents_per_batch=2, in_order=True)
-
-        PAD, BOS, EOS = 0, 1, 2
-        src_correct_1 = torch.tensor([[5,6,EOS,PAD,PAD],[5,6,8,9,EOS]])
-        src_correct_2 = torch.tensor([[5,6,7,EOS],[7,8,EOS,PAD]])
-        src_correct_3 = torch.tensor([[5,6,7,8,9,EOS],[5,6,7,8,EOS,PAD]])
-        src_correct_4 = torch.tensor([[5,6,9,EOS]])
-
-        actual = ds.batches
-
-        self.assertEqual(len(actual), 4)
-
-        self.assertTrue(torch.equal(actual[0].src, src_correct_1))
-        self.assertEqual(list(actual[0].orig_idxs), [0,1])
-
-        self.assertTrue(torch.equal(actual[1].src, src_correct_2))
-        self.assertEqual(list(actual[1].orig_idxs), [2,3])
-
-        self.assertTrue(torch.equal(actual[2].src, src_correct_3))
-        self.assertEqual(list(actual[2].orig_idxs), [4,5])
-
-        self.assertTrue(torch.equal(actual[3].src, src_correct_4))
-        self.assertEqual(list(actual[3].orig_idxs), [6])
-
-    def testInitFromSrcDataSorted(self):
+    def testInit(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
         # sorted src: [[5,6],[7,8],[5,6,7],[5,6,9],[5,6,8,9],[5,6,7,8],[5,6,7,8,9]]
-        # orig idxs: [0,4,2,1,6,5,3]
-        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
-        ds.initialize_from_src_data(src_sents, sents_per_batch=2, in_order=False)
+        sds = Seq2SeqTranslateSubdataset(src_sents, 2, pad_idx=0, bos_idx=1, eos_idx=2)
 
         PAD, BOS, EOS = 0, 1, 2
         src_correct_1 = torch.tensor([[5,6,EOS],[7,8,EOS]])
         src_correct_2 = torch.tensor([[5,6,7,EOS],[5,6,9,EOS]])
         src_correct_3 = torch.tensor([[5,6,8,9,EOS],[5,6,7,8,EOS]])
         src_correct_4 = torch.tensor([[5,6,7,8,9,EOS]])
+        orig_idxs_correct = [0,4,2,1,6,5,3]
 
-        actual = ds.batches
-
+        actual = sds.batches
         self.assertEqual(len(actual), 4)
-
-        self.assertTrue(torch.equal(actual[0].src, src_correct_1))
-        self.assertEqual(list(actual[0].orig_idxs), [0,4])
-
-        self.assertTrue(torch.equal(actual[1].src, src_correct_2))
-        self.assertEqual(list(actual[1].orig_idxs), [2,1])
-
-        self.assertTrue(torch.equal(actual[2].src, src_correct_3))
-        self.assertEqual(list(actual[2].orig_idxs), [6,5])
-
-        self.assertTrue(torch.equal(actual[3].src, src_correct_4))
-        self.assertEqual(list(actual[3].orig_idxs), [3])
-
-    def testGetEmptyTgtDataset(self):
-        src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
-        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
-        ds.initialize_from_src_data(src_sents, sents_per_batch=2, in_order=False)
-
-        new_ds = ds.get_empty_tgt_dataset()
-        self.assertEqual(len(new_ds), 0)
-        self.assertEqual(new_ds.pad_idx, ds.pad_idx)
-        self.assertEqual(new_ds.bos_idx, ds.bos_idx)
-        self.assertEqual(new_ds.eos_idx, ds.eos_idx)
-
-    def testAddBatch(self):
-        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
-        self.assertEqual(len(ds), 0)
-        b1 = Seq2SeqTranslateBatch([], [])
-        ds.add_batch(b1)
-        self.assertEqual(len(ds), 1)
-        b2 = Seq2SeqTranslateBatch([], [])
-        ds.add_batch(b2)
-        self.assertEqual(len(ds), 2)
+        self.assertTrue(torch.equal(actual[0], src_correct_1))
+        self.assertTrue(torch.equal(actual[1], src_correct_2))
+        self.assertTrue(torch.equal(actual[2], src_correct_3))
+        self.assertTrue(torch.equal(actual[3], src_correct_4))
+        self.assertEqual(list(sds.orig_idxs), orig_idxs_correct)
 
     def testUnpad(self):
-        src_sents = []
-        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        sds = Seq2SeqTranslateSubdataset([], 1, pad_idx=0, bos_idx=1, eos_idx=2)
 
         gen_with_eos = [1, 3, 4, 5, 6, 7, 2, 0, 0, 0]
         gen_no_eos = [1, 3, 4, 5, 6, 7, 0, 0, 0, 0]
         
         gen_unpad_correct = [3, 4, 5, 6, 7]
-        gen_with_eos_unpad_actual = ds.unpad(gen_with_eos)
-        gen_no_eos_unpad_actual = ds.unpad(gen_no_eos)
+        gen_with_eos_unpad_actual = sds.unpad(gen_with_eos)
+        gen_no_eos_unpad_actual = sds.unpad(gen_no_eos)
         self.assertEqual(gen_with_eos_unpad_actual, gen_unpad_correct)
         self.assertEqual(gen_no_eos_unpad_actual, gen_unpad_correct)
 
         gen_with_eos_unpad_correct = [1, 3, 4, 5, 6, 7, 2]
         gen_no_eos_unpad_correct = [1, 3, 4, 5, 6, 7]
-        gen_with_eos_unpad_actual = ds.unpad(gen_with_eos, keep_bos_eos=True)
-        gen_no_eos_unpad_actual = ds.unpad(gen_no_eos, keep_bos_eos=True)
+        gen_with_eos_unpad_actual = sds.unpad(gen_with_eos, keep_bos_eos=True)
+        gen_no_eos_unpad_actual = sds.unpad(gen_no_eos, keep_bos_eos=True)
         self.assertEqual(gen_with_eos_unpad_actual, gen_with_eos_unpad_correct)
         self.assertEqual(gen_no_eos_unpad_actual, gen_no_eos_unpad_correct)
 
     def testRestoreOrder(self):
-        src_sents = []
-        ds = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
+        sds = Seq2SeqTranslateSubdataset([], 1, pad_idx=0, bos_idx=1, eos_idx=2)
 
         tgt_orig = [[10,11,12],[10,11,12,13],[10,11,12,14],[10,11,12,13,14],[10,11],[10,12,13],[10,11,12,13,14,15]]
         tgt_sorted = [[10,11],[10,11,12],[10,12,13],[10,11,12,13],[10,11,12,14],[10,11,12,13,14],[10,11,12,13,14,15]]
-        orig_idxs = [1,3,4,5,0,2,6]
-        self.assertEqual(ds.restore_order(tgt_sorted, orig_idxs), tgt_orig)
+        sds.orig_idxs = [1,3,4,5,0,2,6]
+        self.assertEqual(sds.restore_order(tgt_sorted), tgt_orig)
 
-    def testRoundTripInOrder(self):
+    def testRoundTrip(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
-        ds_src = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
-        ds_src.initialize_from_src_data(src_sents, sents_per_batch=2, in_order=True)
+        sds = Seq2SeqTranslateSubdataset(src_sents, 2, pad_idx=0, bos_idx=1, eos_idx=2)
 
-        ds_tgt = ds_src.get_empty_tgt_dataset()
-        for src_batch in ds_src.batches:
-           tgt_final = src_batch.src.clone()
-           tgt_all = src_batch.src.clone().unsqueeze(1).expand(-1,3,-1)
+        finals = []
+        alls = []
+        for src_batch in sds.batches:
+           tgt_final = src_batch.clone()
+           tgt_all = src_batch.clone().unsqueeze(1).expand(-1,3,-1)
            tgt_probs = torch.rand(size=tgt_all.size())
-           tgt_batch = src_batch.with_translation(tgt_final, tgt_all, tgt_probs)
-           ds_tgt.add_batch(tgt_batch)
+           tgt_final, tgt_all, tgt_probs = sds.unbatch(tgt_final, tgt_all, tgt_probs)
+           finals.extend(tgt_final)
+           alls.extend(tgt_all)
 
         tgt_final_correct = src_sents
         tgt_all_correct = [([sent + [2]])*3 for sent in src_sents]
-        tgt_final_actual, tgt_all_actual, probs_all_actual = ds_tgt.unbatch()
+        tgt_final_actual = sds.restore_order(finals)
+        tgt_all_actual = sds.restore_order(alls)
         self.assertEqual(tgt_final_actual, tgt_final_correct)
         self.assertEqual(tgt_all_actual, tgt_all_correct)
 
-    def testRoundTripInOrderMultipleDatasets(self):
-        src_sents = []
-        for i in range(50):
-            src_len = random.randint(6,15)
-            src_sent = [random.randint(5,9) for _ in range(src_len)]
-            src_sents.append(src_sent)
-        ds_src = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
-        ds_src.initialize_from_src_data(src_sents, sents_per_batch=5, in_order=True)
+class TestSeq2SeqTranslateDataset(unittest.TestCase):
 
-        ds_tgt_1 = ds_src.get_empty_tgt_dataset()
-        ds_tgt_2 = ds_src.get_empty_tgt_dataset()
-        batch_count = 0
-        for src_batch in ds_src.batches:
-           tgt_final = src_batch.src.clone()
-           tgt_all = src_batch.src.clone().unsqueeze(1).expand(-1,3,-1)
-           tgt_probs = torch.rand(size=tgt_all.size())
-           tgt_batch = src_batch.with_translation(tgt_final, tgt_all, tgt_probs)
-           if batch_count < 5:
-               ds_tgt_1.add_batch(tgt_batch)
-           else:
-               ds_tgt_2.add_batch(tgt_batch)
-           batch_count += 1
-
-        tgt_final_correct = src_sents
-        tgt_all_correct = [([sent + [2]])*3 for sent in src_sents]
-
-        tgt_final_actual_1, tgt_all_actual_1, probs_all_actual_1 = ds_tgt_1.unbatch()
-        tgt_final_actual_2, tgt_all_actual_2, probs_all_actual_2 = ds_tgt_2.unbatch()
-        tgt_final_actual = tgt_final_actual_1 + tgt_final_actual_2
-        tgt_all_actual = tgt_all_actual_1 + tgt_all_actual_2
-        probs_all_actual = probs_all_actual_1 + probs_all_actual_2
-
-        self.assertEqual(tgt_final_actual, tgt_final_correct)
-        self.assertEqual(tgt_all_actual, tgt_all_correct)
-
-    def testRoundTripSorted(self):
+    def testInit(self):
         src_sents = [[5,6],[5,6,8,9],[5,6,7],[7,8],[5,6,7,8,9],[5,6,7,8],[5,6,9]]
-        ds_src = Seq2SeqTranslateDataset(pad_idx=0, bos_idx=1, eos_idx=2)
-        ds_src.initialize_from_src_data(src_sents, sents_per_batch=2, in_order=False)
+        # first four sorted: [[5,6],[7,8],[5,6,7],[5,6,8,9]]
+        # last three sorted: [[5,6,9],[5,6,7,8],[5,6,7,8,9]]
+        ds = Seq2SeqTranslateDataset(src_sents, 2, 4, pad_idx=0, bos_idx=1, eos_idx=2)
 
-        ds_tgt = ds_src.get_empty_tgt_dataset()
-        for src_batch in ds_src.batches:
-           tgt_final = src_batch.src.clone()
-           tgt_all = src_batch.src.clone().unsqueeze(1).expand(-1,3,-1)
-           tgt_probs = torch.rand(size=tgt_all.size())
-           tgt_batch = src_batch.with_translation(tgt_final, tgt_all, tgt_probs)
-           ds_tgt.add_batch(tgt_batch)
+        self.assertEqual(len(ds.subdatasets), 2)
 
-        tgt_final_correct = src_sents
-        tgt_all_correct = [([sent + [2]])*3 for sent in src_sents]
-        tgt_final_actual, tgt_all_actual, probs_all_actual = ds_tgt.unbatch()
-        self.assertEqual(tgt_final_actual, tgt_final_correct)
-        self.assertEqual(tgt_all_actual, tgt_all_correct)
+        PAD, BOS, EOS = 0, 1, 2
+        src_correct_1_1 = torch.tensor([[5,6,EOS],[7,8,EOS]])
+        src_correct_1_2 = torch.tensor([[5,6,7,EOS,PAD],[5,6,8,9,EOS]])
+        src_correct_2_1 = torch.tensor([[5,6,9,EOS,PAD],[5,6,7,8,EOS]])
+        src_correct_2_2 = torch.tensor([[5,6,7,8,9,EOS]])
+        orig_idxs_correct_1 = [0,3,2,1]
+        orig_idxs_correct_2 = [2,1,0]
+
+        actual_1 = ds.subdatasets[0].batches
+        actual_2 = ds.subdatasets[1].batches
+        self.assertEqual(len(actual_1), 2)
+        self.assertEqual(len(actual_2), 2)
+        self.assertTrue(torch.equal(actual_1[0], src_correct_1_1))
+        self.assertTrue(torch.equal(actual_1[1], src_correct_1_2))
+        self.assertTrue(torch.equal(actual_2[0], src_correct_2_1))
+        self.assertTrue(torch.equal(actual_2[1], src_correct_2_2))
+        self.assertEqual(list(ds.subdatasets[0].orig_idxs), orig_idxs_correct_1)
+        self.assertEqual(list(ds.subdatasets[1].orig_idxs), orig_idxs_correct_2)

@@ -13,6 +13,8 @@ from dataset import Seq2SeqTranslateDataset, Seq2SeqTrainDataset
 from generator import Generator
 from transformer import get_transformer
 
+PRINT_INTERVAL = 100000
+
 def get_parser():
     parser = argparse.ArgumentParser()
     
@@ -46,14 +48,6 @@ if __name__ == '__main__':
     # read in configs from config file
     config = read_config(args.config)
 
-    # computations pertaining to the batch size for dev BLEU computation
-    max_parallel_sentences = config.gen.max_parallel_sentences
-    num_beams_or_samples = config.gen.num_beams_or_samples
-    if max_parallel_sentences < num_beams_or_samples:
-        translate_batch_size = 1
-    else:
-        translate_batch_size = int(max_parallel_sentences / num_beams_or_samples)
-
     # read in data from file
     train_src = read_data(args.train_src)
     train_tgt = read_data(args.train_tgt)
@@ -77,7 +71,7 @@ if __name__ == '__main__':
     dev_src_idxs   = vocab.tok_to_idx_data(dev_src_unk)
     dev_tgt_idxs   = vocab.tok_to_idx_data(dev_tgt_unk)
 
-    # make the data batches
+    # make the training data batches
     train_batches = Seq2SeqTrainDataset(src=train_src_idxs,
                                         tgt=train_tgt_idxs,
                                         toks_per_batch=config.train.batch_size,
@@ -94,11 +88,6 @@ if __name__ == '__main__':
                                       eos_idx=vocab.eos_idx(),
                                       sort_by_tgt_only=False,
                                       randomize=False)
-    dev_translate_batches = Seq2SeqTranslateDataset(pad_idx=vocab.pad_idx(),
-                                                    bos_idx=vocab.bos_idx(),
-                                                    eos_idx=vocab.eos_idx())
-    dev_translate_batches.initialize_from_src_data(src=dev_src_idxs,
-                                                   sents_per_batch=translate_batch_size)
 
     # determine the device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -112,18 +101,31 @@ if __name__ == '__main__':
     if not os.path.exists(args.checkpoint_dir):
         os.makedirs(args.checkpoint_dir)
 
+    # computations pertaining to the batch size for dev BLEU computation
+    max_parallel_sentences = config.gen.max_parallel_sentences
+    num_beams_or_samples = config.gen.num_beams_or_samples
+    if max_parallel_sentences < num_beams_or_samples:
+        translate_batch_size = 1
+    else:
+        translate_batch_size = int(max_parallel_sentences / num_beams_or_samples)
+
+    num_translations = len(dev_src) * num_beams_or_samples
+    print_interval = min(num_translations, PRINT_INTERVAL)
+
+    # make the translation data batches for dev BLEU computation
+    dev_translate_batches = Seq2SeqTranslateDataset(dev_src_idxs, translate_batch_size, print_interval, vocab.pad_idx(), vocab.bos_idx(), vocab.eos_idx())
+
     # construct the function for computing BLEU scores
     generator = Generator(model, config, device, len(vocab), vocab.pad_idx(), vocab.bos_idx(), vocab.eos_idx())
     translator = Translator(model, generator, device)
     def translate_and_bleu_func(epoch_num, max_epochs):
-        for dev_translated_batches in translator.translate(dev_translate_batches):
-            dev_translated_final, dev_translated_all, probs_all = dev_translated_batches.unbatch()
+        for dev_translated_final, dev_translated_all, probs_all in translator.translate(dev_translate_batches):
             dev_translated_final = vocab.idx_to_tok_data(dev_translated_final)
             dev_translated_all = vocab.idx_to_tok_data(dev_translated_all, nesting=3)
             dev_translated_filename = f"{os.path.basename(args.dev_tgt)}.{epoch_num:0{len(str(max_epochs))}d}"
             dev_translated_filepath = os.path.join(args.checkpoint_dir, dev_translated_filename)
             print_translations(dev_translated_filepath, dev_translated_final, dev_translated_all, probs_all)
-            bleu = compute_bleu(args.bleu_script, dev_translated_filepath, args.dev_tgt_gold)
+        bleu = compute_bleu(args.bleu_script, dev_translated_filepath, args.dev_tgt_gold)
         return bleu
 
     # make the trainer
