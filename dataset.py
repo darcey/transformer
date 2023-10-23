@@ -157,15 +157,11 @@ class Seq2SeqTranslateSubdataset:
         return src_tensor
 
     # unpad a list of idxs
-    def unpad(self, gen, keep_bos_eos=False):
+    def unpad(self, gen):
         tok_list = []
         for tok in gen:
-            if tok == self.bos_idx:
-                if keep_bos_eos:
-                    tok_list.append(tok)
-            elif tok == self.eos_idx:
-                if keep_bos_eos:
-                    tok_list.append(tok)
+            if tok == self.eos_idx:
+                tok_list.append(tok)
                 break
             elif tok == self.pad_idx:
                 break
@@ -183,7 +179,7 @@ class Seq2SeqTranslateSubdataset:
     #   probs_all: list of lists of probabilities
     def unbatch(self, tgt_final, tgt_all, probs_all):
         tgt_final = [self.unpad(tgt_sent) for tgt_sent in tgt_final.tolist()]
-        tgt_all = [[self.unpad(gen, keep_bos_eos=True) for gen in tgt_sent] for tgt_sent in tgt_all.tolist()]
+        tgt_all = [[self.unpad(gen) for gen in tgt_sent] for tgt_sent in tgt_all.tolist()]
         probs_all = [[prob for prob in tgt_sent] for tgt_sent in probs_all.tolist()] 
         return tgt_final, tgt_all, probs_all
 

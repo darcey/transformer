@@ -2,7 +2,9 @@ import random
 import torch
 import unittest
 from configuration import *
+from vocabulary import Vocabulary, SpecialTokens
 from dataset import Seq2SeqTranslateDataset
+from outer_generator import *
 from translator import *
 
 
@@ -24,7 +26,18 @@ class TestTranslator(unittest.TestCase):
         config = read_config("configuration.toml")
         model = torch.nn.Linear(5,6)
         generator = MockGenerator(model, config)
-        translator = Translator(model, generator, "cpu")
+        vocab = Vocabulary()
+        vocab.initialize_from_data([], [])
+        def mock_idx_to_tok(tok):
+            if tok == 1:
+                return SpecialTokens.BOS
+            elif tok == 2:
+                return SpecialTokens.EOS
+            else:
+                return tok
+        vocab.idx_to_tok = mock_idx_to_tok
+        outer_generator = OuterGenerator(generator, vocab, config, "cpu")
+        translator = Translator(model, outer_generator)
 
         src_sents = []
         for i in range(56):

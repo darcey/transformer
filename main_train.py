@@ -11,6 +11,7 @@ from reader_writer import read_data, print_translations, compute_bleu
 from vocabulary import Vocabulary
 from dataset import Seq2SeqTranslateDataset, Seq2SeqTrainDataset
 from generator import Generator
+from outer_generator import OuterGenerator
 from transformer import get_transformer
 
 PRINT_INTERVAL = 100000
@@ -117,11 +118,10 @@ if __name__ == '__main__':
 
     # construct the function for computing BLEU scores
     generator = Generator(model, config, device, len(vocab), vocab.pad_idx(), vocab.bos_idx(), vocab.eos_idx())
-    translator = Translator(model, generator, device)
+    outer_generator = OuterGenerator(generator, vocab, config, device)
+    translator = Translator(model, outer_generator)
     def translate_and_bleu_func(epoch_num, max_epochs):
         for dev_translated_final, dev_translated_all, probs_all in translator.translate(dev_translate_batches):
-            dev_translated_final = vocab.idx_to_tok_data(dev_translated_final)
-            dev_translated_all = vocab.idx_to_tok_data(dev_translated_all, nesting=3)
             dev_translated_filename = f"{os.path.basename(args.dev_tgt)}.{epoch_num:0{len(str(max_epochs))}d}"
             dev_translated_filepath = os.path.join(args.checkpoint_dir, dev_translated_filename)
             print_translations(dev_translated_filepath, dev_translated_final, dev_translated_all, probs_all)

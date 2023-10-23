@@ -1,10 +1,7 @@
-# TODO(darcey): replace real vocab class with mock
-
 import random
 import torch
 import unittest
 from dataset import *
-from vocabulary import *
 
 
 
@@ -246,16 +243,10 @@ class TestSeq2SeqTranslateSubdataset(unittest.TestCase):
         gen_with_eos = [1, 3, 4, 5, 6, 7, 2, 0, 0, 0]
         gen_no_eos = [1, 3, 4, 5, 6, 7, 0, 0, 0, 0]
         
-        gen_unpad_correct = [3, 4, 5, 6, 7]
-        gen_with_eos_unpad_actual = sds.unpad(gen_with_eos)
-        gen_no_eos_unpad_actual = sds.unpad(gen_no_eos)
-        self.assertEqual(gen_with_eos_unpad_actual, gen_unpad_correct)
-        self.assertEqual(gen_no_eos_unpad_actual, gen_unpad_correct)
-
         gen_with_eos_unpad_correct = [1, 3, 4, 5, 6, 7, 2]
         gen_no_eos_unpad_correct = [1, 3, 4, 5, 6, 7]
-        gen_with_eos_unpad_actual = sds.unpad(gen_with_eos, keep_bos_eos=True)
-        gen_no_eos_unpad_actual = sds.unpad(gen_no_eos, keep_bos_eos=True)
+        gen_with_eos_unpad_actual = sds.unpad(gen_with_eos)
+        gen_no_eos_unpad_actual = sds.unpad(gen_no_eos)
         self.assertEqual(gen_with_eos_unpad_actual, gen_with_eos_unpad_correct)
         self.assertEqual(gen_no_eos_unpad_actual, gen_no_eos_unpad_correct)
 
@@ -281,7 +272,7 @@ class TestSeq2SeqTranslateSubdataset(unittest.TestCase):
            finals.extend(tgt_final)
            alls.extend(tgt_all)
 
-        tgt_final_correct = src_sents
+        tgt_final_correct = [(sent + [2]) for sent in src_sents]
         tgt_all_correct = [([sent + [2]])*3 for sent in src_sents]
         tgt_final_actual = sds.restore_order(finals)
         tgt_all_actual = sds.restore_order(alls)

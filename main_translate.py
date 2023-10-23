@@ -9,6 +9,7 @@ from vocabulary import Vocabulary
 from dataset import Seq2SeqTranslateDataset
 from translator import Translator
 from generator import Generator
+from outer_generator import OuterGenerator
 from transformer import get_transformer
 
 PRINT_INTERVAL = 100000
@@ -76,12 +77,11 @@ if __name__ == '__main__':
     
     # make generator and translator
     generator = Generator(model, config, device, len(vocab), PAD, BOS, EOS)
-    translator = Translator(model, generator, device)
+    outer_generator = OuterGenerator(generator, vocab, config, device)
+    translator = Translator(model, outer_generator)
 
     # translate the data
     for tgt_final, tgt_all, probs_all in translator.translate(src_batches):
-        tgt_final = vocab.idx_to_tok_data(tgt_final)
-        tgt_all = vocab.idx_to_tok_data(tgt_all, nesting=3)
         print_translations(args.tgt, tgt_final, tgt_all, probs_all)
 
     if args.compute_bleu:

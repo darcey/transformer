@@ -1,5 +1,3 @@
-# TODO(darcey): implement various length rewards for beam search
-# TODO(darcey): implement MBR
 # TODO(darcey): implement cluster search
 # TODO(darcey): implement exact search
 # TODO(darcey): implement exact cluster search
@@ -48,6 +46,8 @@ class Generator:
 
         autoregressive_fn = self.model.get_autoregressive_one_step_fn(src, cache)
         match self.config.decoding_method:
+            case DecodingMethod.MBR: # gathers samples for OuterGenerator
+                return self.sample_outer_loop(src.size(0), max_lengths, max_possible_length, autoregressive_fn, cache)
             case DecodingMethod.SAMPLING:
                 return self.sample_outer_loop(src.size(0), max_lengths, max_possible_length, autoregressive_fn, cache)
             case DecodingMethod.BEAM_SEARCH:

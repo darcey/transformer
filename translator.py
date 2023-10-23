@@ -2,10 +2,9 @@ import torch
 
 class Translator:
 
-    def __init__(self, model, generator, device):
+    def __init__(self, model, outer_generator):
         self.model = model
-        self.generator = generator
-        self.device = device
+        self.outer_generator = outer_generator
 
     def translate(self, test):
         # Outer loop runs once per yield
@@ -17,15 +16,7 @@ class Translator:
                 tgt_alls   = []
                 probs_alls = []
                 for src in sub_test.batches:
-                    src = src.to(self.device)
-                    tgt_final, tgt_all, probs_all = self.generator.generate(src)
-
-                    tgt_final = tgt_final.cpu()
-                    tgt_all = tgt_all.cpu()
-                    probs_all = probs_all.cpu()
-
-                    tgt_final, tgt_all, probs_all = sub_test.unbatch(tgt_final, tgt_all, probs_all)
-                    
+                    tgt_final, tgt_all, probs_all = self.outer_generator.outer_generate(src, sub_test.unbatch)
                     tgt_finals.extend(tgt_final)
                     tgt_alls.extend(tgt_all)
                     probs_alls.extend(probs_all)

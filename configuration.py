@@ -52,6 +52,7 @@ class ClipGrad(Enum):
 class DecodingMethod(Enum):
     SAMPLING = "Sampling"
     BEAM_SEARCH = "Beam_Search"
+    MBR = "MBR"
 
 class LengthNormalization(Enum):
     NONE = "None"

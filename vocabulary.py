@@ -146,6 +146,20 @@ class Vocabulary:
     def idx_to_tok(self, i):
         return self.i_to_t[i]
 
+    # assumes data is a list of list of tokens
+    def remove_bos_eos_data(self, data, nesting=2):
+        if nesting == 2:
+            return [self.remove_bos_eos_sent(sent) for sent in data]
+        elif nesting > 2:
+            return [self.remove_bos_eos(lists, nesting-1) for lists in data]
+        else:
+            raise ValueError("Nesting must be at least 2")
+    # assumes sent is a list of tokens
+    def remove_bos_eos_sent(self, sent):
+        start = 1 if (sent[0] == SpecialTokens.BOS) else 0
+        end = -1 if (sent[-1] == SpecialTokens.EOS) else len(sent)
+        return sent[start:end]
+
     # assumes data is a list of lists of tokens
     def unk_data(self, data, src=True):
         tok_set = self.src_toks if src else self.tgt_toks
