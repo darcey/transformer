@@ -103,6 +103,7 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         self.gen_cpu = Generator(model, config, "cpu", 5, self.pad_idx, self.bos_idx, self.eos_idx)
         self.gen_gpu = Generator(model, config, "cuda:0", 5, self.pad_idx, self.bos_idx, self.eos_idx)
         self.cache = MockCacheDoesNothing()
+        self.config = config.gen
 
     # This is the same test function as in test_generator;
     # just need to make sure it also works on GPU.
@@ -124,7 +125,7 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
             return all_dist, torch.log_softmax(all_dist, dim=-1)
 
         max_lengths = torch.tensor([40]*1000, device="cuda:0")
-        symbols_out, probs_out = self.gen_gpu.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
+        symbols_out, probs_out = self.gen_gpu.sample(self.config, 1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
         # Every sample should have just a or just b
         a_samples = torch.eq(symbols_out, 3).sum(dim=-1).type(torch.bool)
@@ -139,44 +140,36 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         if not torch.cuda.is_available():
             return
 
-        self.gen_cpu.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen_cpu.config.sampling_k = 5
-
-        self.gen_gpu.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen_gpu.config.sampling_k = 5
+        self.config.decoding_method = DecodingMethod.SAMPLING
+        self.config.sampling_k = 5
 
         dist_cpu = torch.rand(5,6,50)
         dist_gpu = dist_cpu.clone().cuda()
 
-        dist_out_cpu = self.gen_cpu.truncate_probs(dist_cpu)
-        dist_out_gpu = self.gen_gpu.truncate_probs(dist_gpu)
+        dist_out_cpu = self.gen_cpu.truncate_probs(self.config, dist_cpu)
+        dist_out_gpu = self.gen_gpu.truncate_probs(self.config, dist_gpu)
         self.assertTrue(torch.equal(dist_out_cpu, dist_out_gpu.cpu()))
 
     def testTopPSameOnGPU(self):
         if not torch.cuda.is_available():
             return
 
-        self.gen_cpu.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen_cpu.config.sampling_p = 0.6
-
-        self.gen_gpu.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen_gpu.config.sampling_p = 0.6
+        self.config.decoding_method = DecodingMethod.SAMPLING
+        self.config.sampling_p = 0.6
 
         dist_cpu = torch.nn.functional.softmax(torch.rand(5,6,50), dim=-1)
         dist_gpu = dist_cpu.clone().cuda()
 
-        dist_out_cpu = self.gen_cpu.truncate_probs(dist_cpu)
-        dist_out_gpu = self.gen_gpu.truncate_probs(dist_gpu)
+        dist_out_cpu = self.gen_cpu.truncate_probs(self.config, dist_cpu)
+        dist_out_gpu = self.gen_gpu.truncate_probs(self.config, dist_gpu)
         self.assertTrue(torch.equal(dist_out_cpu, dist_out_gpu.cpu()))
 
     def testBeamSearchSameOnGPU(self):
         if not torch.cuda.is_available():
             return
 
-        self.gen_cpu.config.decoding_method = DecodingMethod.BEAM_SEARCH
-        self.gen_gpu.config.decoding_method = DecodingMethod.BEAM_SEARCH
-        self.gen_cpu.config.length_normalization = LengthNormalization.GOOGLE_METHOD
-        self.gen_gpu.config.length_normalization = LengthNormalization.GOOGLE_METHOD
+        self.config.decoding_method = DecodingMethod.BEAM_SEARCH
+        self.config.length_normalization = LengthNormalization.GOOGLE_METHOD
 
         dist_cpu = torch.nn.functional.softmax(torch.rand(30,50), dim=-1)
         dist_gpu = dist_cpu.clone().cuda()
@@ -198,8 +191,8 @@ class TestGeneratorWorksOnGPU(unittest.TestCase):
         max_lengths_gpu = torch.tensor([5]*5).cuda()
         cache = MockCacheDoesNothing()
 
-        symbols_final_out_cpu, symbols_all_out_cpu, probs_all_out_cpu = self.gen_cpu.beam_search(5, 6, max_lengths_cpu, 40, auto_fn_cpu, cache)
-        symbols_final_out_gpu, symbols_all_out_gpu, probs_all_out_gpu = self.gen_gpu.beam_search(5, 6, max_lengths_gpu, 40, auto_fn_gpu, cache)
+        symbols_final_out_cpu, symbols_all_out_cpu, probs_all_out_cpu = self.gen_cpu.beam_search(self.config, 5, 6, max_lengths_cpu, 40, auto_fn_cpu, cache)
+        symbols_final_out_gpu, symbols_all_out_gpu, probs_all_out_gpu = self.gen_gpu.beam_search(self.config, 5, 6, max_lengths_gpu, 40, auto_fn_gpu, cache)
 
         self.assertTrue(torch.equal(symbols_final_out_cpu, symbols_final_out_gpu.cpu()))
         self.assertTrue(torch.equal(symbols_all_out_cpu, symbols_all_out_gpu.cpu()))

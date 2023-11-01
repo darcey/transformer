@@ -34,36 +34,37 @@ class TestGenerate(unittest.TestCase):
         model = MockModelDoesNothing()
 
         self.gen = Generator(model, config, device, 5, self.pad_idx, self.bos_idx, self.eos_idx)
+        self.config = config.gen
 
     def testMaxLengthsRelative(self):
-        self.gen.config.use_rel_max_len = True
-        self.gen.config.rel_max_len = 5
-        self.gen.config.abs_max_len = 6
+        self.config.use_rel_max_len = True
+        self.config.rel_max_len = 5
+        self.config.abs_max_len = 6
         src = torch.tensor([[1,2,3,0,0],
                             [1,2,3,4,0],
                             [1,2,0,0,0]])
         max_lengths_correct = torch.tensor([8,9,7])
 
-        max_lengths, max_possible_length = self.gen.get_max_lengths(src)
+        max_lengths, max_possible_length = self.gen.get_max_lengths(self.config, src)
         self.assertTrue(torch.equal(max_lengths, max_lengths_correct))
         self.assertEqual(max_possible_length, 9)
 
     def testMaxLengthsAbsolute(self):
-        self.gen.config.use_rel_max_len = False
-        self.gen.config.rel_max_len = 5
-        self.gen.config.abs_max_len = 6
+        self.config.use_rel_max_len = False
+        self.config.rel_max_len = 5
+        self.config.abs_max_len = 6
         src = torch.tensor([[1,2,3,0,0],
                             [1,2,3,4,0],
                             [1,2,0,0,0]])
         max_lengths_correct = torch.tensor([6,6,6])
 
-        max_lengths, max_possible_length = self.gen.get_max_lengths(src)
+        max_lengths, max_possible_length = self.gen.get_max_lengths(self.config, src)
         self.assertTrue(torch.equal(max_lengths, max_lengths_correct))
         self.assertEqual(max_possible_length, 6)
 
     def testMaxLengthsContextWindow(self):
-        self.gen.config.use_rel_max_len = True
-        self.gen.config.rel_max_len = 7
+        self.config.use_rel_max_len = True
+        self.config.rel_max_len = 7
         self.gen.window = 5
         src = torch.tensor([[1,2,3,0,0],
                             [1,2,3,4,0],
@@ -72,7 +73,7 @@ class TestGenerate(unittest.TestCase):
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            max_lengths, max_possible_length = self.gen.get_max_lengths(src)
+            max_lengths, max_possible_length = self.gen.get_max_lengths(self.config, src)
             self.assertEqual(len(w), 1)
             self.assertTrue(torch.equal(max_lengths, max_lengths_correct))
             self.assertEqual(max_possible_length, 5)
@@ -94,18 +95,19 @@ class TestSampling(unittest.TestCase):
 
         self.gen = Generator(model, config, device, 5, self.pad_idx, self.bos_idx, self.eos_idx)
         self.cache = MockCacheDoesNothing()
+        self.config = config.gen
 
     def testSampleOuterLoopOneIter(self):
         iteration = 0
-        def mock_sample_function(batch, sample, w, x, y, z):
+        def mock_sample_function(config, batch, sample, w, x, y, z):
             nonlocal iteration
             iteration += 1
             all_symbols = torch.full(size=(batch, sample, iteration*2), fill_value=iteration)
             all_probs = torch.full(size=(batch, sample), fill_value=float(iteration))
             return all_symbols, all_probs
         self.gen.sample = mock_sample_function
-        self.gen.config.max_parallel_sentences = 12
-        self.gen.config.num_beams_or_samples = 5
+        self.config.max_parallel_sentences = 12
+        self.config.num_beams_or_samples = 5
 
         samples_correct = torch.tensor([[[1,1],
                                          [1,1],
@@ -121,7 +123,7 @@ class TestSampling(unittest.TestCase):
         probs_correct = torch.tensor([[1.0, 1.0, 1.0, 1.0, 1.0],
                                       [1.0, 1.0, 1.0, 1.0, 1.0]])
 
-        samples_final_out, samples_out, probs_out = self.gen.sample_outer_loop(2, None, None, None, None)
+        samples_final_out, samples_out, probs_out = self.gen.sample_outer_loop(self.config, 2, None, None, None, None)
 
         self.assertTrue(torch.equal(samples_out, samples_correct))
         self.assertTrue(torch.equal(samples_final_out, samples_final_correct))
@@ -129,15 +131,15 @@ class TestSampling(unittest.TestCase):
 
     def testSampleOuterLoopManyIter(self):
         iteration = 0
-        def mock_sample_function(batch, sample, w, x, y, z):
+        def mock_sample_function(config, batch, sample, w, x, y, z):
             nonlocal iteration
             iteration += 1
             all_symbols = torch.full(size=(batch, sample, iteration*2), fill_value=iteration)
             all_probs = torch.full(size=(batch, sample), fill_value=float(iteration))
             return all_symbols, all_probs
         self.gen.sample = mock_sample_function
-        self.gen.config.max_parallel_sentences = 5
-        self.gen.config.num_beams_or_samples = 13
+        self.config.max_parallel_sentences = 5
+        self.config.num_beams_or_samples = 13
 
         samples_correct = torch.tensor([[[1,1,0,0,0,0],
                                          [1,1,0,0,0,0],
@@ -155,7 +157,7 @@ class TestSampling(unittest.TestCase):
         samples_final_correct = torch.tensor([[1,1,0,0,0,0]])
         probs_correct = torch.tensor([[1.0,1.0,1.0,1.0,1.0,2.0,2.0,2.0,2.0,2.0,3.0,3.0,3.0]])
 
-        samples_final_out, samples_out, probs_out = self.gen.sample_outer_loop(1, torch.rand(5), None, None, None)
+        samples_final_out, samples_out, probs_out = self.gen.sample_outer_loop(self.config, 1, torch.rand(5), None, None, None)
 
         self.assertTrue(torch.equal(samples_out, samples_correct))
         self.assertTrue(torch.equal(samples_final_out, samples_final_correct))
@@ -177,7 +179,7 @@ class TestSampling(unittest.TestCase):
             return all_dist, torch.log_softmax(all_dist, dim=-1)
 
         max_lengths = torch.tensor([40]*1000)
-        symbols_out, probs_out = self.gen.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
+        symbols_out, probs_out = self.gen.sample(self.config, 1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
         # Every sample should have just a or just b
         a_samples = torch.eq(symbols_out, 3).sum(dim=-1).type(torch.bool)
@@ -204,7 +206,7 @@ class TestSampling(unittest.TestCase):
             return all_dist, torch.log_softmax(all_dist, dim=-1)
 
         max_lengths = torch.tensor([40]*1000)
-        symbols_out, probs_out = self.gen.sample(1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
+        symbols_out, probs_out = self.gen.sample(self.config, 1000, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
         # Every sample should have equal numbers of as and bs.
         num_as = torch.eq(symbols_out, 3).sum(dim=-1)
@@ -221,42 +223,42 @@ class TestSampling(unittest.TestCase):
         ni   = float("-inf")
         dist = torch.tensor([[[ni, ni, 2*lh, 2*lh, 2*l1]]])
         dist_correct = torch.tensor([[[0.0, 0.0, 0.25, 0.25, 0.5]]])
-        self.gen.config.sampling_temp = 2.0
-        dist_out = self.gen.process_logits(dist)
+        self.config.sampling_temp = 2.0
+        dist_out = self.gen.process_logits(self.config, dist)
         self.assertTrue(torch.equal(dist_out, dist_correct))
 
     def testTopK(self):
         dist = torch.tensor([0.01, 0.03, 0.09, 0.07, 0.55, 0.05, 0.02, 0.04, 0.06, 0.08])
         dist = dist.unsqueeze(0).unsqueeze(0)
 
-        self.gen.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen.config.sampling_k = 4
+        self.config.decoding_method = DecodingMethod.SAMPLING
+        self.config.sampling_k = 4
         dist_correct = torch.tensor([0.0, 0.0, 0.09, 0.07, 0.55, 0.0, 0.0, 0.0, 0.0, 0.08])
         dist_correct = dist_correct.unsqueeze(0).unsqueeze(0)
 
-        dist_out = self.gen.truncate_probs(dist)
+        dist_out = self.gen.truncate_probs(self.config, dist)
         self.assertTrue(torch.equal(dist_out, dist_correct))
 
     def testTopKLargerThanVocab(self):
         dist = torch.softmax(torch.rand(4,5,10), dim=-1)
 
-        self.gen.config.decoding_method = DecodingMethod.SAMPLING
-        self.gen.config.sampling_k = 15
+        self.config.decoding_method = DecodingMethod.SAMPLING
+        self.config.sampling_k = 15
 
-        dist_out = self.gen.truncate_probs(dist)
+        dist_out = self.gen.truncate_probs(self.config, dist)
         self.assertTrue(torch.equal(dist_out, dist))
 
     def testTopP(self):
-        self.gen.config.decoding_method = DecodingMethod.SAMPLING
+        self.config.decoding_method = DecodingMethod.SAMPLING
 
         # No matter what the distribution is, p = 1.0 should just return it.
-        self.gen.config.sampling_p = 1.0
+        self.config.sampling_p = 1.0
         dist = torch.nn.functional.softmax(torch.rand(3,5,8), dim=-1)
-        dist_out = self.gen.truncate_probs(dist)
+        dist_out = self.gen.truncate_probs(self.config, dist)
         self.assertTrue(torch.equal(dist_out, dist))
 
         # Test for p < 1.0
-        self.gen.config.sampling_p = 0.6
+        self.config.sampling_p = 0.6
         dist = torch.tensor([[[0.26, 0.1, 0.2,  0.03, 0.05, 0.02, 0.3,  0.04],
                               [0.08, 0.5, 0.02, 0.25, 0.05, 0.04, 0.03, 0.03]],
                              [[0.3,  0.0, 0.11, 0.02, 0.3,  0.03, 0.2,  0.04],
@@ -265,14 +267,14 @@ class TestSampling(unittest.TestCase):
                                       [0.0 , 0.5, 0.0, 0.25, 0.0, 0.0,  0.0, 0.0]],
                                      [[0.3,  0.0, 0.0, 0.0,  0.3, 0.0,  0.0, 0.0],
                                       [0.0,  0.3, 0.2, 0.0,  0.0, 0.25, 0.0, 0.0]]])
-        dist_out = self.gen.truncate_probs(dist)
+        dist_out = self.gen.truncate_probs(self.config, dist)
         self.assertTrue(torch.equal(dist_out, dist_correct))
 
     def testTopPAndK(self):
-        self.gen.config.decoding_method = DecodingMethod.SAMPLING
+        self.config.decoding_method = DecodingMethod.SAMPLING
 
-        self.gen.config.sampling_p = 0.6
-        self.gen.config.sampling_k = 3
+        self.config.sampling_p = 0.6
+        self.config.sampling_k = 3
         dist = torch.tensor([[[0.26, 0.1, 0.2,  0.03, 0.05, 0.02, 0.3,  0.04],
                               [0.08, 0.5, 0.02, 0.25, 0.05, 0.04, 0.03, 0.03]],
                              [[0.3,  0.0, 0.11, 0.02, 0.3,  0.03, 0.2,  0.04],
@@ -281,7 +283,7 @@ class TestSampling(unittest.TestCase):
                                       [0.0 , 0.5, 0.0,  0.25, 0.0, 0.0, 0.0, 0.0]],
                                      [[0.3,  0.0, 0.0,  0.0,  0.3, 0.0, 0.0, 0.0],
                                       [0.0,  0.3, 0.15, 0.12, 0.0, 0.0, 0.0, 0.0]]])
-        dist_out = self.gen.truncate_probs(dist)
+        dist_out = self.gen.truncate_probs(self.config, dist)
         self.assertTrue(torch.equal(dist_out, dist_correct))
 
 
@@ -301,6 +303,7 @@ class TestBeamSearch(unittest.TestCase):
 
         self.gen = Generator(model, config, device, 5, self.pad_idx, self.bos_idx, self.eos_idx)
         self.cache = MockCacheDoesNothing()
+        self.config = config.gen
 
     def testBeamSearch(self):
         # Generates strings which are either all as or all bs
@@ -314,7 +317,7 @@ class TestBeamSearch(unittest.TestCase):
             return torch.rand(all_dist.size()), torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*2)
-        symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
+        symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(self.config, 2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
         symbols_final_correct = torch.tensor([[1,4,2,0,0],
                                               [1,4,2,0,0]])
@@ -349,7 +352,7 @@ class TestBeamSearch(unittest.TestCase):
             return torch.rand(all_dist.size()), torch.log(all_dist)
 
         max_lengths = torch.tensor([40]*2)
-        symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
+        symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(self.config, 2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
         symbols_final_correct = torch.tensor([[1,4,2],
                                               [1,4,2]])
@@ -383,8 +386,8 @@ class TestBeamSearch(unittest.TestCase):
 
         max_lengths = torch.tensor([40]*2)
 
-        self.gen.config.allow_empty_string = True
-        symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
+        self.config.allow_empty_string = True
+        symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(self.config, 2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
         symbols_final_correct = torch.tensor([[1,2,0],
                                               [1,2,0]])
@@ -405,8 +408,8 @@ class TestBeamSearch(unittest.TestCase):
         self.assertTrue(torch.equal(symbols_all_out, symbols_all_correct))
         self.assertTrue(torch.equal(probs_all_out, torch.log(probs_all_correct)))
 
-        self.gen.config.allow_empty_string = False
-        symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
+        self.config.allow_empty_string = False
+        symbols_final_out, symbols_all_out, probs_all_out = self.gen.beam_search(self.config, 2, 5, max_lengths, 40, mock_autoregressive_fn, self.cache)
 
         symbols_final_correct = torch.tensor([[1,3,2],
                                               [1,3,2]])
@@ -473,15 +476,15 @@ class TestBeamSearch(unittest.TestCase):
                 return lengths
         bm = MockBeamManager()
 
-        self.gen.config.length_normalization = LengthNormalization.NONE
-        self.gen.config.length_reward_gamma = 5.0
-        self.gen.config.length_norm_alpha = 2.0
-        log_probs_out = self.gen.length_normalize(bm, log_probs)
+        self.config.length_normalization = LengthNormalization.NONE
+        self.config.length_reward_gamma = 5.0
+        self.config.length_norm_alpha = 2.0
+        log_probs_out = self.gen.length_normalize(self.config, bm, log_probs)
         self.assertTrue(torch.equal(log_probs_out, log_probs))
 
-        self.gen.config.length_normalization = LengthNormalization.LENGTH_REWARD
-        self.gen.config.length_reward_gamma = 3.0
-        self.gen.config.length_norm_alpha = 2.0
+        self.config.length_normalization = LengthNormalization.LENGTH_REWARD
+        self.config.length_reward_gamma = 3.0
+        self.config.length_norm_alpha = 2.0
         log_probs_correct = torch.tensor([[[-6.0+3*3.0, ni, ni, ni, ni],
                                            [-3.0+2*3.0, ni, ni, ni, ni],
                                            [ni, ni, -1.0+4*3.0, -2.0+5*3.0, -3.0+5*3.0]],
@@ -494,12 +497,12 @@ class TestBeamSearch(unittest.TestCase):
                                           [[-7.0+3*3.0, ni, ni, ni, ni],
                                            [-8.0+1*3.0, ni, ni, ni, ni],
                                            [ni, ni, -10.0+4*3.0, -11.0+5*3.0, -12.0+5*3.0]]])
-        log_probs_out = self.gen.length_normalize(bm, log_probs)
+        log_probs_out = self.gen.length_normalize(self.config, bm, log_probs)
         self.assertTrue(torch.equal(log_probs_out, log_probs_correct))
 
-        self.gen.config.length_normalization = LengthNormalization.LENGTH_NORM
-        self.gen.config.length_reward_gamma = 3.0
-        self.gen.config.length_norm_alpha = 2.0
+        self.config.length_normalization = LengthNormalization.LENGTH_NORM
+        self.config.length_reward_gamma = 3.0
+        self.config.length_norm_alpha = 2.0
         log_probs_correct = torch.tensor([[[-6.0/3, ni, ni, ni, ni],
                                            [-3.0/2, ni, ni, ni, ni],
                                            [ni, ni, -1.0/4, -2.0/5, -3.0/5]],
@@ -512,12 +515,12 @@ class TestBeamSearch(unittest.TestCase):
                                           [[-7.0/3, ni, ni, ni, ni],
                                            [-8.0/1, ni, ni, ni, ni],
                                            [ni, ni, -10.0/4, -11.0/5, -12.0/5]]])
-        log_probs_out = self.gen.length_normalize(bm, log_probs)
+        log_probs_out = self.gen.length_normalize(self.config, bm, log_probs)
         self.assertTrue(torch.equal(log_probs_out, log_probs_correct))
 
         # not doing the calculation on this one, just making sure it runs
-        self.gen.config.length_normalization = LengthNormalization.GOOGLE_METHOD
-        self.gen.config.length_reward_gamma = 3.0
-        self.gen.config.length_norm_alpha = 2.0
-        log_probs_out = self.gen.length_normalize(bm, log_probs)
+        self.config.length_normalization = LengthNormalization.GOOGLE_METHOD
+        self.config.length_reward_gamma = 3.0
+        self.config.length_norm_alpha = 2.0
+        log_probs_out = self.gen.length_normalize(self.config, bm, log_probs)
         self.assertEqual(log_probs_out.size(), log_probs.size())

@@ -3,7 +3,7 @@
 import argparse
 import torch
 
-from configuration import read_config
+from configuration import read_config, max_num_beams_or_samples
 from reader_writer import read_data, print_translations, compute_bleu
 from vocabulary import Vocabulary
 from dataset import Seq2SeqTranslateDataset
@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     # computations pertaining to the batch size
     max_parallel_sentences = config.gen.max_parallel_sentences
-    num_beams_or_samples = config.gen.num_beams_or_samples
+    num_beams_or_samples = max_num_beams_or_samples(config.gen)
     if max_parallel_sentences < num_beams_or_samples:
         batch_size = 1
     else:

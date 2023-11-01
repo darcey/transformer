@@ -14,7 +14,7 @@ class MockGenerator:
     def __init__(self, model, config):
         return
 
-    def generate(self, src):
+    def generate(self, src, config=None):
         tgt_final = src.clone()
         tgt_all = src.clone().unsqueeze(1)
         probs_all = torch.rand(src.size(0), 1)

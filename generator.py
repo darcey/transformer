@@ -38,30 +38,31 @@ class Generator:
     #   tgt_final: [batch_size, tgt_len]
     #   tgt_all:   [batch_size, beam_size, tgt_len]
     #   probs_all: [batch_size, beam_size]
-    def generate(self, src):
-        max_lengths, max_possible_length = self.get_max_lengths(src)
+    def generate(self, src, config=None):
+        config = config if config else self.config
+        max_lengths, max_possible_length = self.get_max_lengths(config, src)
 
         batch = src.size(0)
         cache = BeamCache(batch, 1, self.num_layers, self.device)
 
         autoregressive_fn = self.model.get_autoregressive_one_step_fn(src, cache)
-        match self.config.decoding_method:
-            case DecodingMethod.MBR: # gathers samples for OuterGenerator
-                return self.sample_outer_loop(src.size(0), max_lengths, max_possible_length, autoregressive_fn, cache)
+        match config.decoding_method:
             case DecodingMethod.SAMPLING:
-                return self.sample_outer_loop(src.size(0), max_lengths, max_possible_length, autoregressive_fn, cache)
+                return self.sample_outer_loop(config, src.size(0), max_lengths, max_possible_length, autoregressive_fn, cache)
             case DecodingMethod.BEAM_SEARCH:
-                return self.beam_search(src.size(0), self.config.num_beams_or_samples, max_lengths, max_possible_length, autoregressive_fn, cache)
+                return self.beam_search(config, src.size(0), config.num_beams_or_samples, max_lengths, max_possible_length, autoregressive_fn, cache)
+            case DecodingMethod.MBR:
+                raise Exception("The decoding method passed to 'generate' should not be MBR.")
 
     # src:         [batch_size, src_len]
     # max_lengths: [batch_size]
-    def get_max_lengths(self, src):
+    def get_max_lengths(self, config, src):
         batch_size = src.size(0)
 
-        if self.config.use_rel_max_len:
-            max_lengths = torch.sum(src != self.pad, dim=-1) + self.config.rel_max_len
+        if config.use_rel_max_len:
+            max_lengths = torch.sum(src != self.pad, dim=-1) + config.rel_max_len
         else:
-            max_lengths = torch.tensor([self.config.abs_max_len] * batch_size, device=self.device)
+            max_lengths = torch.tensor([config.abs_max_len] * batch_size, device=self.device)
 
         min_max_length = max_lengths.min().item()
         if min_max_length < 1:
@@ -80,13 +81,13 @@ class Generator:
     #   final_samples: [batch_size, tgt_len]
     #   all_samples:   [batch_size, beam_size, tgt_len]
     #   all_probs:     [batch_size, beam_size]
-    def sample_outer_loop(self, batch_size, max_lengths, max_possible_length, autoregressive_fn, cache):
-        max_sents     = self.config.max_parallel_sentences
-        num_samples   = self.config.num_beams_or_samples
+    def sample_outer_loop(self, config, batch_size, max_lengths, max_possible_length, autoregressive_fn, cache):
+        max_sents     = config.max_parallel_sentences
+        num_samples   = config.num_beams_or_samples
         total_samples = batch_size * num_samples
 
         if total_samples <= max_sents:
-            all_samples, all_probs = self.sample(batch_size, num_samples, max_lengths, max_possible_length, autoregressive_fn, cache)
+            all_samples, all_probs = self.sample(config, batch_size, num_samples, max_lengths, max_possible_length, autoregressive_fn, cache)
             final_samples = all_samples[:,0,:].clone()
             return final_samples, all_samples, all_probs
 
@@ -98,7 +99,7 @@ class Generator:
         while total_samples > 0:
             curr_num_samples = min(total_samples, max_sents)
             cache_copy = copy.deepcopy(cache)
-            samples, probs = self.sample(1, curr_num_samples, max_lengths.clone(), max_possible_length, autoregressive_fn, cache_copy)
+            samples, probs = self.sample(config, 1, curr_num_samples, max_lengths.clone(), max_possible_length, autoregressive_fn, cache_copy)
             all_samples.append(samples)
             all_probs.append(probs)
             total_samples -= curr_num_samples
@@ -113,7 +114,7 @@ class Generator:
     # max_lengths: [batch_size]
     # ret_symbols: [batch_size, num_samples, tgt_len]
     # ret_probs:   [batch_size, num_samples]
-    def sample(self, batch_size, num_samples, max_lengths, max_possible_length, autoregressive_fn, cache):
+    def sample(self, config, batch_size, num_samples, max_lengths, max_possible_length, autoregressive_fn, cache):
         beam_manager = BeamManager(batch_size=batch_size,
                                    beam_size=num_samples,
                                    vocab_size=self.vocab_size,
@@ -135,8 +136,8 @@ class Generator:
             next_token_logits, _, _ = beam_manager.compute_next_token_probs()      # [batch, num_samples, V]
 
             # adjust probs as needed and sample next token
-            next_token_probs = self.process_logits(next_token_logits)              # [batch, num_samples, V]
-            next_token_probs = self.truncate_probs(next_token_probs)               # [batch, num_samples, V]
+            next_token_probs = self.process_logits(config, next_token_logits)      # [batch, num_samples, V]
+            next_token_probs = self.truncate_probs(config, next_token_probs)       # [batch, num_samples, V]
             curr_size = next_token_probs.size(0)
             next_token_probs = next_token_probs.reshape(curr_size*num_samples, -1) # [batch*num_samples, 1]
             chosen_idxs = torch.multinomial(next_token_probs, 1, replacement=True) # [batch*num_samples, 1]
@@ -149,28 +150,28 @@ class Generator:
 
     # logits: [batch, num_samples, V]
     # ret:    [batch, num_samples, V]
-    def process_logits(self, logits):
-        logits = logits / self.config.sampling_temp
+    def process_logits(self, config, logits):
+        logits = logits / config.sampling_temp
         return torch.nn.functional.softmax(logits, dim=-1)
 
     # probs: [batch, num_samples, V]
     # ret:   [batch, num_samples, V]
-    def truncate_probs(self, probs):
+    def truncate_probs(self, config, probs):
         # If not doing top-p or top-k, this is a no-op
-        if (self.config.sampling_p == 1.0) and (self.config.sampling_k <= 0):
+        if (config.sampling_p == 1.0) and (config.sampling_k <= 0):
             return probs
 
         # Based on Ari Holtzman's implementation
         # https://github.com/ari-holtzman/degen/blob/master/gen.py
         vals, idxs = torch.sort(probs, dim=-1, descending=True)
         cum_vals = torch.cumsum(vals, dim=-1)
-        to_remove_p = cum_vals >= self.config.sampling_p
+        to_remove_p = cum_vals >= config.sampling_p
         to_remove_p[:,:,1:] = to_remove_p[:,:,:-1].clone()
         to_remove_p[:,:,0] = False
         to_remove_k = torch.zeros_like(to_remove_p)
         k = probs.size(-1)
-        if self.config.sampling_k > 0:
-            k = min(k, self.config.sampling_k)
+        if config.sampling_k > 0:
+            k = min(k, config.sampling_k)
         to_remove_k[:,:,k:] = True
         to_remove = to_remove_p + to_remove_k
         vals[to_remove] = 0.0
@@ -181,7 +182,7 @@ class Generator:
     # max_lengths: [batch_size]
     # ret_symbols: [batch_size, beam_size, tgt_len]
     # ret_probs:   [batch_size, beam_size]
-    def beam_search(self, batch_size, beam_size, max_lengths, max_possible_length, autoregressive_fn, cache):
+    def beam_search(self, config, batch_size, beam_size, max_lengths, max_possible_length, autoregressive_fn, cache):
         beam_manager = BeamManager(batch_size=batch_size,
                                    beam_size=beam_size,
                                    vocab_size=self.vocab_size,
@@ -219,9 +220,9 @@ class Generator:
             _, next_token_probs, all_choices_cumulative_probs = beam_manager.compute_next_token_probs() # [batch, beam, vocab]
 
             # modify the beams' probs as needed
-            if time_step == 0 and not self.config.allow_empty_string:
+            if time_step == 0 and not config.allow_empty_string:
                 all_choices_cumulative_probs[:,:,self.eos] = float("-inf")
-            all_choices_cumulative_probs = self.length_normalize(beam_manager, all_choices_cumulative_probs)
+            all_choices_cumulative_probs = self.length_normalize(config, beam_manager, all_choices_cumulative_probs)
 
             # for finished sentences (e.g. ones that end in PAD),
             # the beam manager will set the next token log probability
@@ -252,15 +253,15 @@ class Generator:
         symbols, probs = beam_manager.get_final()
         return symbols[:,0,:].clone(), symbols, probs
 
-    def length_normalize(self, beam_manager, log_probs):
-        if self.config.length_normalization == LengthNormalization.NONE:
+    def length_normalize(self, config, beam_manager, log_probs):
+        if config.length_normalization == LengthNormalization.NONE:
             return log_probs
 
         lengths = beam_manager.get_all_choices_lengths()
-        if self.config.length_normalization == LengthNormalization.LENGTH_REWARD:
-            return log_probs + lengths * self.config.length_reward_gamma
-        elif self.config.length_normalization == LengthNormalization.LENGTH_NORM:
+        if config.length_normalization == LengthNormalization.LENGTH_REWARD:
+            return log_probs + lengths * config.length_reward_gamma
+        elif config.length_normalization == LengthNormalization.LENGTH_NORM:
             return log_probs / lengths
-        elif self.config.length_normalization == LengthNormalization.GOOGLE_METHOD:
-            alpha = self.config.length_norm_alpha
+        elif config.length_normalization == LengthNormalization.GOOGLE_METHOD:
+            alpha = config.length_norm_alpha
             return log_probs / ((5.0 + lengths) ** alpha / 6.0 ** alpha)

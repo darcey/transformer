@@ -77,11 +77,48 @@ def read_config(filename):
     config_train.clip_grad = ClipGrad(config_train.clip_grad)
     
     config_gen = Namespace(**config_dict["generation"])
-    config_gen.decoding_method = DecodingMethod(config_gen.decoding_method)
-    config_gen.length_normalization = LengthNormalization(config_gen.length_normalization)
+    parse_gen_options(config_gen)
+    if config_gen.decoding_method == DecodingMethod.MBR:
+        parse_mbr_options(config_gen, config_dict["generation"])
 
     config = Namespace()
     config.arch = config_arch
     config.train = config_train
     config.gen = config_gen
     return config
+
+def parse_gen_options(config_gen):
+    config_gen.decoding_method = DecodingMethod(config_gen.decoding_method)
+    if hasattr(config_gen, "length_normalization"):
+        config_gen.length_normalization = LengthNormalization(config_gen.length_normalization)
+
+def parse_mbr_options(parent_config_gen, config_dict):
+    if parent_config_gen.mbr_share_sents:
+        parse_mbr_options_helper(parent_config_gen, config_dict, "share")
+    else:
+        parse_mbr_options_helper(parent_config_gen, config_dict, "cand")
+        parse_mbr_options_helper(parent_config_gen, config_dict, "hypo")
+
+def parse_mbr_options_helper(parent_config_gen, config_dict, name):
+    config_gen = Namespace(**config_dict[name])
+    parse_gen_options(config_gen)
+    fill_options(config_gen, parent_config_gen)
+    if config_gen.decoding_method == DecodingMethod.MBR:
+        parse_mbr_options(config_gen, config_dict[name])
+    setattr(parent_config_gen, name, config_gen)
+
+def fill_options(config_gen, parent_config_gen):
+    for option in vars(parent_config_gen):
+        if (option not in ["share", "cand", "hypo"]):
+            if not hasattr(config_gen, option):
+                setattr(config_gen, option, getattr(parent_config_gen, option))
+
+def max_num_beams_or_samples(config_gen):
+    if config_gen.decoding_method == DecodingMethod.MBR:
+        nums = []
+        for subconfig in ["share", "cand", "hypo"]:
+            if hasattr(config_gen, subconfig):
+                nums.append(max_num_beams_or_samples(getattr(config_gen, subconfig)))
+        return max(nums)
+    else:
+        return config_gen.num_beams_or_samples

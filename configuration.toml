@@ -76,8 +76,10 @@ label_smooth_unk       = true
 
 
 [generation]
-# Number of generations
+# How many sentences can the GPU handle at a time
 max_parallel_sentences = 100
+
+# Number of generations
 num_beams_or_samples   = 5
 
 # Length of generations
@@ -96,3 +98,37 @@ allow_empty_string     = true
 length_normalization   = "None"
 length_reward_gamma    = 0.0
 length_norm_alpha      = 0.0
+
+# MBR params
+# If using MBR, you must manually set the decoding
+# method for the candidates and hypotheses.
+# If the candidates and hypotheses are the same set,
+# use [generation.share]. If they are different, use
+# [generation.cand] and [generation.hypo].
+# You may also manually set the other generation
+# parameters by making new copies of those parameters
+# under generation.share, generation.cand or generation.hypo.
+# (Please only use whichever of generation.cand, generation.hypo,
+# and generation.share you actually need; otherwise it will break.)
+mbr_share_sents        = true
+weight_hypos_equally   = true
+[generation.cand]
+decoding_method        = "Sampling"
+[generation.hypo]
+decoding_method        = "Sampling"
+[generation.share]
+decoding_method        = "Sampling"
+# You can do nested MBR if you like, to arbitrary depth.
+# If you are doing this, you can construct the config
+# options in a nested way, by making headings like
+# [generation.hypo.share.cand].
+# For each instance of MBR, the only required parameters
+# are [prefix].mbr_share_sents, and either
+# [prefix].cand.decoding_method and [prefix].hypo.decoding_method
+# or just [prefix].share.decoding_method based on whether
+# [prefix].mbr_share_sents is false or true.
+# You will also want to set the number of sentences to keep
+# from a nested MBR batch, using num_beams_or_samples.
+# You may also redefine any other parameters.
+# If a parameter is not specified it will default to
+# the previous level of nesting.
