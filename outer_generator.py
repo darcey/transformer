@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import logging
 from sacrebleu.metrics import BLEU
@@ -57,11 +58,14 @@ class OuterGenerator:
 
         return cand_final, cand_all, cand_probs_all
 
-    def mbr(self, cand_batch, cand_batch_probs, hypo_batch, hypo_batch_probs, weight_hypos_equally):
+    def mbr(self, cand_batch, cand_batch_log_probs, hypo_batch, hypo_batch_log_probs, weight_hypos_equally):
         cand_final = []
         cand_all = []
         cand_scores_all = []
         cand_probs_all = []
+
+        cand_batch_probs = [[math.exp(log_prob) for log_prob in cand_log_probs] for cand_log_probs in cand_batch_log_probs]
+        hypo_batch_probs = [[math.exp(log_prob) for log_prob in hypo_log_probs] for hypo_log_probs in hypo_batch_log_probs]
         for cands, cand_probs, hypos, hypo_probs in zip(cand_batch, cand_batch_probs, hypo_batch, hypo_batch_probs):
             num_cands = len(cands)
             num_hypos = len(hypos)
