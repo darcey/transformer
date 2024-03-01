@@ -1,4 +1,3 @@
-# TODO(darcey): implement cluster search
 # TODO(darcey): implement exact search
 # TODO(darcey): implement exact cluster search
 # TODO(darcey): implement diverse beam search
@@ -16,7 +15,7 @@ import warnings
 import copy
 import torch
 from configuration import DecodingMethod, LengthNormalization
-from beam_manager import BeamManager
+from beam_manager import BeamManager, BeamManagerNoBall
 from cache import BeamCache
 
 class Generator:
@@ -115,17 +114,17 @@ class Generator:
     # ret_symbols: [batch_size, num_samples, tgt_len]
     # ret_probs:   [batch_size, num_samples]
     def sample(self, config, batch_size, num_samples, max_lengths, max_possible_length, autoregressive_fn, cache):
-        beam_manager = BeamManager(batch_size=batch_size,
-                                   beam_size=num_samples,
-                                   vocab_size=self.vocab_size,
-                                   max_lengths=max_lengths,
-                                   max_possible_length=max_possible_length,
-                                   pad=self.pad,
-                                   bos=self.bos,
-                                   eos=self.eos,
-                                   autoregressive_fn=autoregressive_fn,
-                                   cache=cache,
-                                   device=self.device)
+        beam_manager = BeamManagerNoBall(batch_size=batch_size,
+                                         beam_size=num_samples,
+                                         vocab_size=self.vocab_size,
+                                         max_lengths=max_lengths,
+                                         max_possible_length=max_possible_length,
+                                         pad=self.pad,
+                                         bos=self.bos,
+                                         eos=self.eos,
+                                         autoregressive_fn=autoregressive_fn,
+                                         cache=cache,
+                                         device=self.device)
 
         while True:
             beam_manager.prune_finished()
@@ -144,7 +143,7 @@ class Generator:
             chosen_idxs = chosen_idxs.reshape(curr_size, num_samples)              # [batch, num_samples]
 
             # tell the beam manager which idxs we're keeping
-            beam_manager.select_idxs_independent(chosen_idxs)
+            beam_manager.select_idxs_sampling(chosen_idxs)
 
         return beam_manager.get_final()
 
@@ -183,17 +182,17 @@ class Generator:
     # ret_symbols: [batch_size, beam_size, tgt_len]
     # ret_probs:   [batch_size, beam_size]
     def beam_search(self, config, batch_size, beam_size, max_lengths, max_possible_length, autoregressive_fn, cache):
-        beam_manager = BeamManager(batch_size=batch_size,
-                                   beam_size=beam_size,
-                                   vocab_size=self.vocab_size,
-                                   max_lengths=max_lengths,
-                                   max_possible_length=max_possible_length,
-                                   pad=self.pad,
-                                   bos=self.bos,
-                                   eos=self.eos,
-                                   autoregressive_fn=autoregressive_fn,
-                                   cache=cache,
-                                   device=self.device)
+        beam_manager = BeamManagerNoBall(batch_size=batch_size,
+                                         beam_size=beam_size,
+                                         vocab_size=self.vocab_size,
+                                         max_lengths=max_lengths,
+                                         max_possible_length=max_possible_length,
+                                         pad=self.pad,
+                                         bos=self.bos,
+                                         eos=self.eos,
+                                         autoregressive_fn=autoregressive_fn,
+                                         cache=cache,
+                                         device=self.device)
 
         # beam should not contain duplicates, so at the beginning,
         # start with just one BOS in the beam, and the rest of the
@@ -246,7 +245,7 @@ class Generator:
             # tell the beam manager which of the possible beams to keep
             # note that each index in chosen_idxs is a value (beam_item*V + vocab_item)
             # indicating that the extended beam item to keep is [batch_idx, beam_item, vocab_item]
-            beam_manager.select_idxs_dependent(chosen_idxs)
+            beam_manager.select_idxs_beam(chosen_idxs)
 
             time_step += 1
 
@@ -265,3 +264,97 @@ class Generator:
         elif config.length_normalization == LengthNormalization.GOOGLE_METHOD:
             alpha = config.length_norm_alpha
             return log_probs / ((5.0 + lengths) ** alpha / 6.0 ** alpha)
+
+    # max_lengths: [batch_size]
+    # ret_symbols: ????
+    # ret_probs:   ????
+    def cluster_beam_search(self, config, batch_size, beam_size, ball_size, max_lengths, max_possible_length, distance_class, autoregressive_fn, cache):
+        # The beam items + ball items will be stored in a tensor of size [batch, beam, ball+1, ...]
+        # where elements [:, :, 0, ...] are beam items and [:, :, 1:, ...] are the ball items.
+
+        beam_manager = BeamManager(batch_size=batch_size,
+                                   beam_size=beam_size,
+                                   ball_size=ball_size,
+                                   vocab_size=self.vocab_size,
+                                   max_lengths=max_lengths,
+                                   max_possible_length=max_possible_length,
+                                   pad=self.pad,
+                                   bos=self.bos,
+                                   eos=self.eos,
+                                   autoregressive_fn=autoregressive_fn,
+                                   cache=cache,
+                                   device=self.device)
+        distance = distance_class(batch_size=batch_size,
+                                  beam_size=beam_size,
+                                  ball_size=ball_size,
+                                  vocab_size=self.vocab_size,
+                                  beam_manager=beam_manager)
+
+        # At the start, the beam will just contain one item (the empty string)
+        # and its ball will not contain anything. The rest of the beam / ball
+        # items should be filled with dummy sentences that are just PAD.
+        start_symbols = torch.full((batch_size, beam_size, ball_size+1, 1), self.pad, device=self.device)
+        start_symbols[:,0,0,:] = self.bos
+        start_probs = torch.full((batch_size, beam_size, ball_size+1), float("-inf"), device=self.device)
+        start_probs[:,0,0] = 0.0
+        beam_manager.manually_initialize(start_symbols, start_probs)
+
+        time_step = 0
+        while True:
+            # Prune things from the batch when every beam item is finished
+            # (this ignores ball items, which do not need to be finished).
+            beam_manager.prune_finished()
+            if beam_manager.all_done():
+                break
+
+            # Tell the beam manager to extend all the beam and ball items by one token.
+            _, _, all_choices_cumulative_probs = beam_manager.compute_next_token_probs() # [batch, beam, ball+1, vocab]
+            batch_size = all_choices_cumulative_probs.size(0)                            # (may have changed if sents were pruned)
+
+            # Compute the distance-weighted probabilities that will be used to score the ball items.
+            distances = distance.get_distance_estimates()                                    # [batch, beam, vocab, ball+1, vocab]
+            ball_distance_weights = torch.exp(-config.cluster_beam_search_alpha * distances) # [batch, beam, vocab, ball+1, vocab]
+            ball_scores = all_choices_cumulative_probs.unsqueeze(2) * ball_distance_weights  # [batch, beam, vocab, ball+1, vocab]
+            ball_scores_old = ball_scores.clone()
+            # If a sentence contains PAD followed by a non-PAD token, it will have distance
+            # of infinity and probability of -infinity, as it is invalid. It is still better
+            # to select these (since the rest of the code is equipped to handle invalid stuff)
+            # than to select a ball item which is the same as the beam item, so set these to a
+            # low value that isn't quite -infinity.
+            invalid = torch.logical_or(torch.isnan(ball_scores), ball_scores == float("-inf"))
+            min_val = ball_scores[~invalid].min() - 10
+            ball_scores[invalid] = min_val
+            ball_scores_old[invalid] = float("-inf")
+            # For each new beam item, there will be one item in the ball that's the same as the beam item;
+            # set the score of this to -infinity so it cannot be chosen.
+            ball_same_as_beam_mask = torch.full((batch_size, beam_size, ball_size+1, self.vocab_size, self.vocab_size), False, device=self.device)
+            ball_same_as_beam_mask[:, :, 0:1] = torch.eye(self.vocab_size, dtype=torch.bool, device=self.device)
+            ball_same_as_beam_mask = ball_same_as_beam_mask.permute(0, 1, 3, 2, 4)
+            ball_scores[ball_same_as_beam_mask] = float("-inf")
+
+            # Select a new ball for each possible beam item yv.
+            ball_scores = ball_scores.reshape(batch_size, beam_size, self.vocab_size, -1) # [batch, beam, vocab, (ball+1)*vocab]
+            _, chosen_ball_idxs = torch.topk(ball_scores, ball_size, dim=-1)              # [batch, beam, vocab, ball]
+            # Add the beam item (which we previously set to -inf) back into its ball.
+            beam_item_scores = ball_scores_old[ball_same_as_beam_mask]
+            beam_item_scores = beam_item_scores.reshape(batch_size, beam_size, self.vocab_size, 1)          # [batch, beam, vocab, 1]
+            ball_scores_old = ball_scores_old.reshape(batch_size, beam_size, self.vocab_size, -1)           # [batch, beam, vocab, (ball+1)*vocab]
+            ball_item_scores = torch.gather(ball_scores_old, -1, chosen_ball_idxs)
+            chosen_ball_scores = torch.cat((beam_item_scores, ball_item_scores), dim=-1)                    # [batch, beam, vocab, ball+1]
+            beam_item_idxs = torch.arange(self.vocab_size).expand(batch_size, beam_size, -1).unsqueeze(-1)  # [batch, beam, vocab, 1]
+            chosen_ball_idxs = torch.cat((beam_item_idxs, chosen_ball_idxs), dim=-1)                        # [batch, beam, vocab, ball+1]
+
+            # Use the ball scores to compute the score of each beam item.
+            beam_scores = torch.sum(chosen_ball_scores, dim=-1) # [batch, beam, vocab]
+            # Use the beam scores to select the new beams.
+            beam_scores = beam_scores.reshape(batch_size, -1)   # [batch, beam*vocab]
+            chosen_beam_probs, chosen_beam_idxs = torch.topk(beam_scores, beam_size, dim=-1) # [batch, beam]
+
+            # Pass this info to the distance metric + beam manager to tell it what to prune.
+            beam_manager.select_idxs_cluster(chosen_ball_idxs, chosen_beam_idxs)
+            distance.select_idxs(chosen_ball_idxs, chosen_beam_idxs)
+            
+            time_step += 1
+        
+        symbols, probs = beam_manager.get_final() # [batch, beam, ball+1, seq_len], [batch, beam, ball+1]
+        return symbols[:,0,0,:].clone(), symbols, probs

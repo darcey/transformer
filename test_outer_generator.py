@@ -114,8 +114,8 @@ class TestMBR(unittest.TestCase):
         sents1 = [sent1, sent2, sent3]
         sents2 = [sent4, sent5, sent6]
         sents_batch = [sents1, sents2]
-        probs1 = [0.1, 0.01, 0.001]
-        probs2 = [0.001, 0.01, 0.1]
+        probs1 = [math.log(0.1), math.log(0.01), math.log(0.001)]
+        probs2 = [math.log(0.001), math.log(0.01), math.log(0.1)]
         probs_batch = [probs1, probs2]
 
         sent1_trim = ['I', 'wanted', 'to', 'understand', 'who', 'was', 'doing', 'the', 'job', '.']
@@ -168,7 +168,7 @@ class TestMBR(unittest.TestCase):
         self.assertEqual(cands_final, [sent1, sent6])
         self.assertEqual(cands_all, [[sent1, sent2, sent3], [sent6, sent5, sent4]])
         self.assertTrue(all(all(math.isclose(out, actual) for out, actual in zip(outs, actuals)) for outs, actuals in zip(scores, [[sent1_score, sent2_score, sent3_score], [sent6_score, sent5_score, sent4_score]])))
-        self.assertEqual(probs, [[0.1, 0.01, 0.001], [0.1, 0.01, 0.001]])
+        self.assertTrue(all(all(math.isclose(out, actual) for out, actual in zip(outs, actuals)) for outs, actuals in zip(probs, [[0.1, 0.01, 0.001], [0.1, 0.01, 0.001]])))
 
     def testMBRWeightByProbs(self):
         BOS = SpecialTokens.BOS
@@ -184,8 +184,8 @@ class TestMBR(unittest.TestCase):
         sents1 = [sent1, sent2, sent3]
         sents2 = [sent4, sent5, sent6]
         sents_batch = [sents1, sents2]
-        probs1 = [0.1, 0.01, 0.001]
-        probs2 = [0.001, 0.01, 0.1]
+        probs1 = [math.log(0.1), math.log(0.01), math.log(0.001)]
+        probs2 = [math.log(0.001), math.log(0.01), math.log(0.1)]
         probs_batch = [probs1, probs2]
 
         sent1_trim = ['I', 'wanted', 'to', 'understand', 'who', 'was', 'doing', 'the', 'job', '.']
@@ -238,4 +238,4 @@ class TestMBR(unittest.TestCase):
         self.assertEqual(cands_final, [sent1, sent6])
         self.assertEqual(cands_all, [[sent1, sent2, sent3], [sent6, sent5, sent4]])
         self.assertTrue(all(all(math.isclose(out, actual) for out, actual in zip(outs, actuals)) for outs, actuals in zip(scores, [[sent1_score, sent2_score, sent3_score], [sent6_score, sent5_score, sent4_score]])))
-        self.assertEqual(probs, [[0.1, 0.01, 0.001], [0.1, 0.01, 0.001]])
+        self.assertTrue(all(all(math.isclose(out, actual) for out, actual in zip(outs, actuals)) for outs, actuals in zip(probs, [[0.1, 0.01, 0.001], [0.1, 0.01, 0.001]])))

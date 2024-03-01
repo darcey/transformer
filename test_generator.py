@@ -2,6 +2,8 @@ import math
 import torch
 import unittest
 from configuration import read_config, DecodingMethod, LengthNormalization
+from distances import Identity
+from cache import BeamCache
 from generator import *
 
 
@@ -524,3 +526,73 @@ class TestBeamSearch(unittest.TestCase):
         self.config.length_norm_alpha = 2.0
         log_probs_out = self.gen.length_normalize(self.config, bm, log_probs)
         self.assertEqual(log_probs_out.size(), log_probs.size())
+
+
+
+class TestClusterBeamSearch(unittest.TestCase):
+
+    def setUp(self):
+        self.pad_idx = 0
+        self.bos_idx = 1
+        self.eos_idx = 2
+        vocab_size = 10
+
+        device = "cpu"
+        config = read_config("configuration.toml")
+        model = MockModelDoesNothing()
+
+        self.gen = Generator(model, config, device, vocab_size, self.pad_idx, self.bos_idx, self.eos_idx)
+        self.config = config.gen
+        self.config.cluster_beam_search_alpha = 1
+
+    def testClusterWithIdentityDistanceReducesToBeam(self):
+
+        class MockCacheStoresFinished:
+            def __init__(self, is_cluster):
+                self.is_cluster = is_cluster
+                self.finished_beams = torch.tensor([False]*4)
+            def expand_to_beam_size(self, beam_size):
+                return
+            def register_finished_sents(self, mask):
+                self.finished_mask = mask
+            def register_finished_beams(self, mask):
+                self.finished_beams = mask
+            def select_idxs(self, chosen_idxs):
+                return
+
+        # Create a random distribution.
+        # Should give the same answers for the beam items in both
+        # beam search and cluster beam search.
+        logits = torch.rand(4,5,6+1,8,10)
+        logits_modified = logits.clone()
+        logits_modified[:,:,:,:,0] = float("-inf")
+        logits_modified[:,:,:,:,1] = float("-inf")
+        dist = torch.nn.functional.log_softmax(torch.rand(4,5,6+1,8,10), dim=-1)
+
+        def auto_fn(symbols, timestep, cache):
+            if cache.is_cluster:
+                dist_reshape = dist.clone()[~cache.finished_beams]
+                logits_reshape = logits.clone()[~cache.finished_beams]
+            else:
+                dist_reshape = dist.clone()[:,:,0,:,:][~cache.finished_beams]
+                logits_reshape = logits.clone()[:,:,0,:,:][~cache.finished_beams]
+            dist_ret = dist_reshape.reshape(-1,8,10)[:,timestep:timestep+symbols.size(1),:][~cache.finished_mask]
+            logits_ret = logits_reshape.reshape(-1,8,10)[:,timestep:timestep+symbols.size(1),:][~cache.finished_mask]
+            return logits_ret, dist_ret
+
+        batch_size = 4
+        beam_size = 5
+        ball_size = 6
+        vocab_size = 10
+        max_lengths = torch.tensor([8]*batch_size)
+        max_poss_length = 8
+
+        cache_beam = MockCacheStoresFinished(False)
+        symbols_final_beam, symbols_all_beam, probs_all_beam = self.gen.beam_search(self.config, batch_size, beam_size, max_lengths, max_poss_length, auto_fn, cache_beam)
+
+        cache_cluster = MockCacheStoresFinished(True)
+        symbols_final_cluster, symbols_all_cluster, probs_all_cluster= self.gen.cluster_beam_search(self.config, batch_size, beam_size, ball_size, max_lengths, max_poss_length, Identity, auto_fn, cache_cluster)
+
+        self.assertTrue(torch.equal(symbols_final_beam, symbols_final_cluster))
+        self.assertTrue(torch.equal(symbols_all_beam, symbols_all_cluster[:,:,0,:]))
+        self.assertTrue(torch.equal(probs_all_beam, probs_all_cluster[:,:,0]))
