@@ -11,10 +11,11 @@ class TestMBR(unittest.TestCase):
     def setUp(self):
         device = "cpu"
         config = read_config("configuration.toml")
+        config.gen.decoding_method = DecodingMethod.MBR
         vocab = Vocabulary()
         vocab.initialize_from_data([], [])
         gen = None
-
+        
         self.outer_gen = OuterGenerator(gen, vocab, config, device)
 
     def testRecursiveMBR(self):
@@ -48,6 +49,7 @@ class TestMBR(unittest.TestCase):
                         # MBR params
                         mbr_share_sents        = false
                         weight_hypos_equally   = true
+                        mbr_metric             = "BLEU_bpe"
                         [generation.cand]
                         decoding_method        = "MBR"
                         mbr_share_sents        = true
@@ -114,50 +116,47 @@ class TestMBR(unittest.TestCase):
         sents1 = [sent1, sent2, sent3]
         sents2 = [sent4, sent5, sent6]
         sents_batch = [sents1, sents2]
-        probs1 = [0.1, 0.01, 0.001]
-        probs2 = [0.001, 0.01, 0.1]
+        probs1 = [math.log(0.1), math.log(0.01), math.log(0.001)]
+        probs2 = [math.log(0.001), math.log(0.01), math.log(0.1)]
         probs_batch = [probs1, probs2]
 
-        sent1_trim = ['I', 'wanted', 'to', 'understand', 'who', 'was', 'doing', 'the', 'job', '.']
-        sent2_trim = ['I', 'wanted', 'to', 'know', 'which', 'sandwich', 'to', 'eat', '.']
-        sent3_trim = ['If', 'the', 'job', 'is', 'to', 'eat', 'a', 'sandwich']
-        sent4_trim = ['Give', 'me', 'a', 'bigger', 'cookie', '.']
-        sent5_trim = ['My', 'mother', 'has', 'to', 'eat', 'the', 'sandwich']
-        sent6_trim = ['Nobody', 'wants', 'to', 'trade', 'their', 'cookie', 'for', 'a', 'sandwich', '.']
+        def mock_process_for_metric(cand_batch, hypo_batch, mbr_metric):
+            return cand_batch, hypo_batch
+        self.outer_gen.process_for_metric = mock_process_for_metric
 
         def mock_score_func(sent_a, sent_b):
             if sent_a == sent_b:
                 return 1
             else:
-                if sent_a == sent1_trim and sent_b == sent2_trim:
+                if sent_a == sent1 and sent_b == sent2:
                     return 0.9
-                elif sent_a == sent1_trim and sent_b == sent3_trim:
+                elif sent_a == sent1 and sent_b == sent3:
                     return 0.8
-                elif sent_a == sent2_trim and sent_b == sent1_trim:
+                elif sent_a == sent2 and sent_b == sent1:
                     return 0.7
-                elif sent_a == sent2_trim and sent_b == sent3_trim:
+                elif sent_a == sent2 and sent_b == sent3:
                     return 0.6
-                elif sent_a == sent3_trim and sent_b == sent1_trim:
+                elif sent_a == sent3 and sent_b == sent1:
                     return 0.5
-                elif sent_a == sent3_trim and sent_b == sent2_trim:
+                elif sent_a == sent3 and sent_b == sent2:
                     return 0.4
-                elif sent_a == sent4_trim and sent_b == sent5_trim:
+                elif sent_a == sent4 and sent_b == sent5:
                     return 0.1
-                elif sent_a == sent4_trim and sent_b == sent6_trim:
+                elif sent_a == sent4 and sent_b == sent6:
                     return 0.15
-                elif sent_a == sent5_trim and sent_b == sent4_trim:
+                elif sent_a == sent5 and sent_b == sent4:
                     return 0.2
-                elif sent_a == sent5_trim and sent_b == sent6_trim:
+                elif sent_a == sent5 and sent_b == sent6:
                     return 0.25
-                elif sent_a == sent6_trim and sent_b == sent4_trim:
+                elif sent_a == sent6 and sent_b == sent4:
                     return 0.3
-                elif sent_a == sent6_trim and sent_b == sent5_trim:
+                elif sent_a == sent6 and sent_b == sent5:
                     return 0.35
                 else:
                     self.assertTrue(False)
         self.outer_gen.sentence_bleu = mock_score_func
 
-        cands_final, cands_all, scores, probs = self.outer_gen.mbr(sents_batch, probs_batch, sents_batch, probs_batch, True)
+        cands_final, cands_all, scores, probs = self.outer_gen.mbr(sents_batch, probs_batch, sents_batch, probs_batch, MBRMetric.BLEU_BPE, True)
         
         sent1_score = 1/3*(1 + 0.9 + 0.8)
         sent2_score = 1/3*(0.7 + 1 + 0.6)
@@ -168,7 +167,7 @@ class TestMBR(unittest.TestCase):
         self.assertEqual(cands_final, [sent1, sent6])
         self.assertEqual(cands_all, [[sent1, sent2, sent3], [sent6, sent5, sent4]])
         self.assertTrue(all(all(math.isclose(out, actual) for out, actual in zip(outs, actuals)) for outs, actuals in zip(scores, [[sent1_score, sent2_score, sent3_score], [sent6_score, sent5_score, sent4_score]])))
-        self.assertEqual(probs, [[0.1, 0.01, 0.001], [0.1, 0.01, 0.001]])
+        self.assertTrue(all(all(math.isclose(out, actual) for out, actual in zip(outs, actuals)) for outs, actuals in zip(probs, [[0.1, 0.01, 0.001], [0.1, 0.01, 0.001]])))
 
     def testMBRWeightByProbs(self):
         BOS = SpecialTokens.BOS
@@ -184,50 +183,47 @@ class TestMBR(unittest.TestCase):
         sents1 = [sent1, sent2, sent3]
         sents2 = [sent4, sent5, sent6]
         sents_batch = [sents1, sents2]
-        probs1 = [0.1, 0.01, 0.001]
-        probs2 = [0.001, 0.01, 0.1]
+        probs1 = [math.log(0.1), math.log(0.01), math.log(0.001)]
+        probs2 = [math.log(0.001), math.log(0.01), math.log(0.1)]
         probs_batch = [probs1, probs2]
 
-        sent1_trim = ['I', 'wanted', 'to', 'understand', 'who', 'was', 'doing', 'the', 'job', '.']
-        sent2_trim = ['I', 'wanted', 'to', 'know', 'which', 'sandwich', 'to', 'eat', '.']
-        sent3_trim = ['If', 'the', 'job', 'is', 'to', 'eat', 'a', 'sandwich']
-        sent4_trim = ['Give', 'me', 'a', 'bigger', 'cookie', '.']
-        sent5_trim = ['My', 'mother', 'has', 'to', 'eat', 'the', 'sandwich']
-        sent6_trim = ['Nobody', 'wants', 'to', 'trade', 'their', 'cookie', 'for', 'a', 'sandwich', '.']
+        def mock_process_for_metric(cand_batch, hypo_batch, mbr_metric):
+            return cand_batch, hypo_batch
+        self.outer_gen.process_for_metric = mock_process_for_metric
 
         def mock_score_func(sent_a, sent_b):
             if sent_a == sent_b:
                 return 1
             else:
-                if sent_a == sent1_trim and sent_b == sent2_trim:
+                if sent_a == sent1 and sent_b == sent2:
                     return 0.9
-                elif sent_a == sent1_trim and sent_b == sent3_trim:
+                elif sent_a == sent1 and sent_b == sent3:
                     return 0.8
-                elif sent_a == sent2_trim and sent_b == sent1_trim:
+                elif sent_a == sent2 and sent_b == sent1:
                     return 0.7
-                elif sent_a == sent2_trim and sent_b == sent3_trim:
+                elif sent_a == sent2 and sent_b == sent3:
                     return 0.6
-                elif sent_a == sent3_trim and sent_b == sent1_trim:
+                elif sent_a == sent3 and sent_b == sent1:
                     return 0.5
-                elif sent_a == sent3_trim and sent_b == sent2_trim:
+                elif sent_a == sent3 and sent_b == sent2:
                     return 0.4
-                elif sent_a == sent4_trim and sent_b == sent5_trim:
+                elif sent_a == sent4 and sent_b == sent5:
                     return 0.1
-                elif sent_a == sent4_trim and sent_b == sent6_trim:
+                elif sent_a == sent4 and sent_b == sent6:
                     return 0.15
-                elif sent_a == sent5_trim and sent_b == sent4_trim:
+                elif sent_a == sent5 and sent_b == sent4:
                     return 0.2
-                elif sent_a == sent5_trim and sent_b == sent6_trim:
+                elif sent_a == sent5 and sent_b == sent6:
                     return 0.25
-                elif sent_a == sent6_trim and sent_b == sent4_trim:
+                elif sent_a == sent6 and sent_b == sent4:
                     return 0.3
-                elif sent_a == sent6_trim and sent_b == sent5_trim:
+                elif sent_a == sent6 and sent_b == sent5:
                     return 0.35
                 else:
                     self.assertTrue(False)
         self.outer_gen.sentence_bleu = mock_score_func
 
-        cands_final, cands_all, scores, probs = self.outer_gen.mbr(sents_batch, probs_batch, sents_batch, probs_batch, False)
+        cands_final, cands_all, scores, probs = self.outer_gen.mbr(sents_batch, probs_batch, sents_batch, probs_batch, MBRMetric.BLEU_BPE, False)
         
         sent1_score = 1*0.1 + 0.9*0.01 + 0.8*0.001  # 0.1098
         sent2_score = 0.7*0.1 + 1*0.01 + 0.6*0.001  # 0.0806
@@ -238,4 +234,4 @@ class TestMBR(unittest.TestCase):
         self.assertEqual(cands_final, [sent1, sent6])
         self.assertEqual(cands_all, [[sent1, sent2, sent3], [sent6, sent5, sent4]])
         self.assertTrue(all(all(math.isclose(out, actual) for out, actual in zip(outs, actuals)) for outs, actuals in zip(scores, [[sent1_score, sent2_score, sent3_score], [sent6_score, sent5_score, sent4_score]])))
-        self.assertEqual(probs, [[0.1, 0.01, 0.001], [0.1, 0.01, 0.001]])
+        self.assertTrue(all(all(math.isclose(out, actual) for out, actual in zip(outs, actuals)) for outs, actuals in zip(probs, [[0.1, 0.01, 0.001], [0.1, 0.01, 0.001]])))

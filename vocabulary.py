@@ -151,7 +151,7 @@ class Vocabulary:
         if nesting == 2:
             return [self.remove_bos_eos_sent(sent) for sent in data]
         elif nesting > 2:
-            return [self.remove_bos_eos(lists, nesting-1) for lists in data]
+            return [self.remove_bos_eos_data(lists, nesting-1) for lists in data]
         else:
             raise ValueError("Nesting must be at least 2")
     # assumes sent is a list of tokens

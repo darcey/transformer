@@ -112,6 +112,7 @@ length_norm_alpha      = 0.0
 # and generation.share you actually need; otherwise it will break.)
 mbr_share_sents        = true
 weight_hypos_equally   = true
+mbr_metric             = "BLEU_bpe"
 [generation.cand]
 decoding_method        = "Sampling"
 [generation.hypo]

@@ -60,6 +60,11 @@ class LengthNormalization(Enum):
     LENGTH_NORM = "Length_Normalization"
     GOOGLE_METHOD = "Google_Method"
 
+class MBRMetric(Enum):
+    BLEU_BPE = "BLEU_bpe"
+    BLEU_TOK = "BLEU_tok"
+    BLEU_DETOK = "BLEU_detok"
+
 def read_config(filename):
     with open(filename) as config_file:
         config_dict = toml.load(config_file)
@@ -91,6 +96,8 @@ def parse_gen_options(config_gen):
     config_gen.decoding_method = DecodingMethod(config_gen.decoding_method)
     if hasattr(config_gen, "length_normalization"):
         config_gen.length_normalization = LengthNormalization(config_gen.length_normalization)
+    if hasattr(config_gen, "mbr_metric"):
+        config_gen.mbr_metric = MBRMetric(config_gen.mbr_metric)
 
 def parse_mbr_options(parent_config_gen, config_dict):
     if parent_config_gen.mbr_share_sents:
