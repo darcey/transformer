@@ -108,16 +108,18 @@ class OuterGenerator:
         return cand_final, cand_all, cand_scores_all, cand_probs_all
 
     def process_for_metric(self, cand_batch, hypo_batch, mbr_metric):
+        num_batch_items = len(cand_batch)
+        cands_per_batch = len(cand_batch[0])
+        hypos_per_batch = len(hypo_batch[0])
+    
         cand_batch = self.vocab.remove_bos_eos_data(cand_batch, nesting=3)
         hypo_batch = self.vocab.remove_bos_eos_data(hypo_batch, nesting=3)
         
-        assert(all([(all([not "\n" in hypo for hypo in hypos]) for hypos in hypo_batch)]))
-
         cand_batch_strs = [[" ".join([tok if isinstance(tok, str) else tok.value for tok in cand]) for cand in cands] for cands in cand_batch]
         hypo_batch_strs = [[" ".join([tok if isinstance(tok, str) else tok.value for tok in hypo]) for hypo in hypos] for hypos in hypo_batch]
 
-        cand_batch_strs_join = "\n\n".join(["\n".join(cands) for cands in cand_batch_strs])
-        hypo_batch_strs_join = "\n\n".join(["\n".join(hypos) for hypos in hypo_batch_strs])
+        cand_batch_strs_join = "\n".join(["\n".join(cands) for cands in cand_batch_strs])
+        hypo_batch_strs_join = "\n".join(["\n".join(hypos) for hypos in hypo_batch_strs])
 
         if mbr_metric == MBRMetric.BLEU_TOK or mbr_metric == MBRMetric.BLEU_DETOK:
             bpe = re.compile('(@@ )|(@@ ?$)')
@@ -130,8 +132,10 @@ class OuterGenerator:
             cand_batch_strs_join = subprocess.run([detok, "-q", "-l en"], input=cand_batch_strs_join, capture_output=True, text=True).stdout
             hypo_batch_strs_join = subprocess.run([detok, "-q", "-l en"], input=hypo_batch_strs_join, capture_output=True, text=True).stdout
 
-        cand_batch_strs = [cands_join.split("\n") for cands_join in cand_batch_strs_join.split("\n\n")]
-        hypo_batch_strs = [hypos_join.split("\n") for hypos_join in hypo_batch_strs_join.split("\n\n")]
+        cand_batch_strs = cand_batch_strs_join.split("\n")
+        cand_batch_strs = [cand_batch_strs[i*cands_per_batch:(i+1)*cands_per_batch] for i in range(num_batch_items)]
+        hypo_batch_strs = hypo_batch_strs_join.split("\n")
+        hypo_batch_strs = [hypo_batch_strs[i*hypos_per_batch:(i+1)*hypos_per_batch] for i in range(num_batch_items)]
         return cand_batch_strs, hypo_batch_strs
 
     def sentence_bleu(self, cand_str, hypo_str):
