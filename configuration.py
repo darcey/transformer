@@ -61,7 +61,6 @@ class LengthNormalization(Enum):
     GOOGLE_METHOD = "Google_Method"
 
 class MBRMetric(Enum):
-    BLEU_BPE = "BLEU_bpe"
     BLEU_TOK = "BLEU_tok"
     BLEU_DETOK = "BLEU_detok"
 
@@ -85,6 +84,7 @@ def read_config(filename):
     parse_gen_options(config_gen)
     if config_gen.decoding_method == DecodingMethod.MBR:
         parse_mbr_options(config_gen, config_dict["generation"])
+    print(config_gen)
 
     config = Namespace()
     config.arch = config_arch

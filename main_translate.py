@@ -34,6 +34,8 @@ def get_parser():
                         help='If this argument is used, will compute BLEU score of translations')
     parser.add_argument('--bleu-script', type=str, required=False,
                         help='Script that does postprocessing and computes BLEU score')
+    parser.add_argument('--mbr-postproc-script', type=str, required=False,
+                        help='Script that postprocesses the translations (e.g. to detokenize them) before doing MBR.')
 
     return parser
 
@@ -77,7 +79,7 @@ if __name__ == '__main__':
     
     # make generator and translator
     generator = Generator(model, config, device, len(vocab), PAD, BOS, EOS)
-    outer_generator = OuterGenerator(generator, vocab, config, device)
+    outer_generator = OuterGenerator(generator, vocab, config, device, args.mbr_postproc_script)
     translator = Translator(model, outer_generator)
 
     # translate the data

@@ -39,6 +39,8 @@ def get_parser():
                         help='Directory to save model checkpoints to')
     parser.add_argument('--bleu-script', type=str, required=False,
                         help='Script that does postprocessing and computes BLEU score')
+    parser.add_argument('--mbr-postproc-script', type=str, required=False,
+                        help='Script that postprocesses the translations (e.g. to detokenize them) before doing MBR.')
 
     return parser
 
@@ -118,7 +120,7 @@ if __name__ == '__main__':
 
     # construct the function for computing BLEU scores
     generator = Generator(model, config, device, len(vocab), vocab.pad_idx(), vocab.bos_idx(), vocab.eos_idx())
-    outer_generator = OuterGenerator(generator, vocab, config, device)
+    outer_generator = OuterGenerator(generator, vocab, config, device, args.mbr_postproc_script)
     translator = Translator(model, outer_generator)
     def translate_and_bleu_func(epoch_num, max_epochs):
         for dev_translated_final, dev_translated_all, probs_all in translator.translate(dev_translate_batches):
